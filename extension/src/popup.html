@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>InspectFlow</title>
+    <link rel="stylesheet" href="styles/ui.css" />
+  </head>
+  <body class="popup">
+    <div class="app">
+      <header class="brand">
+        <img src="icons/icon-32.png" alt="InspectFlow" />
+        <h1>InspectFlow</h1>
+      </header>
+
+      <label for="server-url">MCP server URL</label>
+      <div class="row">
+        <input id="server-url" type="text" placeholder="http://127.0.0.1:4399" />
+        <button id="save">Save</button>
+      </div>
+
+      <div class="row">
+        <span class="status">
+          <span id="dot" class="dot"></span>
+          <span id="status-text" class="muted">Not checked</span>
+        </span>
+        <button id="test" class="secondary" style="margin-left: auto">Test</button>
+      </div>
+
+      <div id="details" class="card" hidden></div>
+
+      <p class="hint">
+        Open Chrome DevTools → <strong>InspectFlow</strong> panel on your app to
+        capture and apply style changes.
+      </p>
+    </div>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

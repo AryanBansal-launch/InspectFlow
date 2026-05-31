@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>InspectFlow</title>
+    <link rel="stylesheet" href="styles/ui.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="brand">
+        <img src="icons/icon-32.png" alt="InspectFlow" />
+        <h1>InspectFlow</h1>
+      </header>
+
+      <div class="row">
+        <span class="status">
+          <span id="server-dot" class="dot"></span>
+          <span id="server-text" class="muted">Checking server…</span>
+        </span>
+        <button id="refresh" class="secondary" style="margin-left: auto">Refresh</button>
+      </div>
+
+      <p class="hint" id="inspected-target"></p>
+
+      <h2 style="font-size: 12px; color: var(--text-muted); margin: 14px 0 4px">
+        Captured changes
+      </h2>
+      <div id="changes">
+        <div class="empty">
+          No changes captured yet. Edit a style in the Elements panel to begin.
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="panel.js"></script>
+  </body>
+</html>
