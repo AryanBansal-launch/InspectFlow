@@ -22,33 +22,19 @@ export interface ServerHealth {
 }
 
 /**
- * A raw CSS change as extracted from the stylesheet diff —  the panel adds
- * `file` and `className` from the inspected element's dataset before
- * displaying it or sending it to the server.
+ * A CSS change captured from the selected element ($0), enriched with the
+ * element's className and (optionally) a `data-source-file` path.
  */
-export interface RawCssChange {
+export interface CapturedChange {
+  id: string;
+  capturedAt: string;
   selector: string;
   property: string;
   value: string;
-}
-
-/**
- * A CSS change enriched with React source-mapping info read from the
- * `data-source-file` attribute of the currently selected element ($0).
- */
-export interface CapturedChange extends RawCssChange {
-  id: string;
-  capturedAt: string;
   /** Relative source-file path from `data-source-file` (if present). */
   file?: string;
   /** Current className string of the inspected element (if present). */
   className?: string;
-}
-
-/** Live state of the debugger capture session. */
-export interface CaptureState {
-  active: boolean;
-  tabId: number | null;
 }
 
 /**
@@ -59,11 +45,8 @@ export type RequestMessage =
   | { type: "GET_SETTINGS" }
   | { type: "SET_SETTINGS"; settings: Partial<ExtensionSettings> }
   | { type: "CHECK_SERVER" }
-  | { type: "START_CAPTURE"; tabId: number }
-  | { type: "STOP_CAPTURE"; tabId: number }
-  | { type: "GET_CAPTURE_STATE" }
   | { type: "SEND_STYLE_CHANGE"; change: CapturedChange }
-  | { type: "ANALYZE_CHANGE"; change: CapturedChange }
+  | { type: "ANALYZE_CHANGE"; change: CapturedChange; mode: "local" | "ai" }
   | { type: "PREVIEW_CHANGE"; file: string; replace: string; with: string }
   | { type: "APPLY_CHANGE"; file: string; replace: string; with: string };
 
@@ -72,15 +55,15 @@ export interface MessageResponseMap {
   GET_SETTINGS: { settings: ExtensionSettings };
   SET_SETTINGS: { settings: ExtensionSettings };
   CHECK_SERVER: { reachable: boolean; health?: ServerHealth; error?: string };
-  START_CAPTURE: { success: boolean; error?: string };
-  STOP_CAPTURE: { success: boolean; error?: string };
-  GET_CAPTURE_STATE: CaptureState;
   SEND_STYLE_CHANGE: { success: boolean; serverId?: string; error?: string };
   ANALYZE_CHANGE: {
     success: boolean;
     /** The resolved (or auto-discovered) source file. */
     file?: string;
     suggestion?: { replace: string; with: string; reason?: string };
+    source?: "local" | "ai";
+    /** True when local mapping failed but AI analysis may succeed. */
+    canUseAi?: boolean;
     error?: string;
   };
   PREVIEW_CHANGE: {
@@ -98,16 +81,6 @@ export interface MessageResponseMap {
     error?: string;
   };
 }
-
-/**
- * Messages pushed from the background service worker to panel ports —
- * these flow over `chrome.runtime.Port` rather than one-shot sendMessage.
- */
-export type PanelPushMessage =
-  | { type: "CAPTURE_STARTED"; tabId: number }
-  | { type: "CAPTURE_STOPPED" }
-  | { type: "CAPTURE_ERROR"; error: string }
-  | { type: "CSS_CHANGE_DETECTED"; rawChange: RawCssChange };
 
 /** A successful response envelope. */
 export interface OkResponse<T> {

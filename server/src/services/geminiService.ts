@@ -34,6 +34,7 @@ interface GeminiRequest {
     temperature: number;
     maxOutputTokens: number;
     responseMimeType: string;
+    thinkingConfig?: { thinkingBudget: number };
   };
 }
 interface GeminiCandidate {
@@ -128,8 +129,11 @@ export async function analyzeWithGemini(
     contents: [{ parts: [{ text: buildPrompt(input) }] }],
     generationConfig: {
       temperature: 0.1, // low temperature → deterministic, factual output
-      maxOutputTokens: 512,
+      maxOutputTokens: 1024,
       responseMimeType: "application/json",
+      // Disable "thinking" on 2.5-flash — otherwise thinking tokens consume the
+      // output budget and the JSON answer gets truncated (finishReason: MAX_TOKENS).
+      thinkingConfig: { thinkingBudget: 0 },
     },
   };
 
@@ -171,12 +175,21 @@ export async function analyzeWithGemini(
       throw new Error(`Gemini returned non-JSON response (HTTP ${res.status})`);
     }
 
-    // 503 "high demand" and 429 rate-limit are both transient — retry.
-    if ((res.status === 503 || res.status === 429) && attempt < MAX_ATTEMPTS - 1) {
+    // 429 = quota exhausted (free tier is per-DAY). Retrying within seconds
+    // cannot help — fail fast with a clear message instead of stalling.
+    if (res.status === 429) {
+      throw new Error(
+        "Gemini quota exceeded (free-tier daily limit). Use the deterministic " +
+          "'Analyze' button, switch GEMINI_MODEL, or wait for the quota to reset.",
+      );
+    }
+
+    // 503 "high demand" is genuinely transient — retry with backoff.
+    if (res.status === 503 && attempt < MAX_ATTEMPTS - 1) {
       const delay = RETRY_DELAY_MS[attempt] ?? 4000;
       log.warn(
         { attempt: attempt + 1, status: res.status },
-        `Gemini returned ${res.status} — retrying in ${delay}ms`,
+        `Gemini returned 503 — retrying in ${delay}ms`,
       );
       await new Promise((r) => setTimeout(r, delay));
       continue;

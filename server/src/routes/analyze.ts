@@ -2,7 +2,6 @@ import { Router } from "express";
 import { z } from "zod";
 import { analyzeStyleChange } from "../tools/analyzeStyleChange.js";
 import { createLogger } from "../logger/index.js";
-import { hasGeminiKey } from "../config/env.js";
 import { safeValidate } from "../validation/schemas.js";
 
 const log = createLogger("routes:analyze");
@@ -30,6 +29,7 @@ const analyzeRequestSchema = z.object({
   value: z.string().trim().min(1, "value is required").max(2000),
   className: z.string().trim().max(4000).optional(),
   selector: z.string().trim().max(1000).optional(),
+  mode: z.enum(["local", "ai"]).optional(),
 });
 
 /**
@@ -41,19 +41,14 @@ const analyzeRequestSchema = z.object({
  * `file` is optional — when omitted the server searches PROJECT_ROOT for a
  * source file containing `className` and uses the best match automatically.
  *
+ * Common Tailwind edits resolve via a deterministic local mapper (no API call).
+ * Only cases the mapper can't handle fall back to Gemini.
+ *
  * 200: { success: true, file: "src/...", suggestion: { replace, with, reason? } }
  * 400: validation error or file not found
- * 503: GEMINI_API_KEY not configured
+ * 503: Gemini needed but unavailable (no key / quota exhausted)
  */
 analyzeRouter.post("/analyze", async (req, res) => {
-  if (!hasGeminiKey()) {
-    res.status(503).json({
-      success: false,
-      error: "GEMINI_API_KEY is not configured. Add it to .env and restart the server.",
-    });
-    return;
-  }
-
   const result = safeValidate(analyzeRequestSchema, req.body);
   if (!result.ok) {
     log.warn({ errors: result.errors }, "rejected invalid analyze request");
@@ -61,15 +56,27 @@ analyzeRouter.post("/analyze", async (req, res) => {
     return;
   }
 
-  const { file, property, value, className, selector } = result.data;
-  log.info({ file: file ?? "(auto-discover)", property, value }, "analyze request");
+  const { file, property, value, className, selector, mode } = result.data;
+  log.info({ file: file ?? "(auto-discover)", property, value, mode: mode ?? "local" }, "analyze request");
 
   try {
-    const analysis = await analyzeStyleChange({ file, property, value, className, selector });
-    res.json({ success: true, file: analysis.file, suggestion: analysis.suggestion });
+    const analysis = await analyzeStyleChange({ file, property, value, className, selector, mode });
+    res.json({
+      success: true,
+      file: analysis.file,
+      suggestion: analysis.suggestion,
+      source: analysis.source,
+    });
   } catch (error) {
     const message = (error as Error).message;
+    const name = (error as Error).name;
     log.error({ err: error, file, property }, "analysis failed");
+
+    // No deterministic mapping → 422 so the client can offer "Analyze with AI".
+    if (name === "NoLocalMappingError") {
+      res.status(422).json({ success: false, error: message, canUseAi: true });
+      return;
+    }
 
     const isClientError =
       message.includes("not found") ||
@@ -77,6 +84,14 @@ analyzeRouter.post("/analyze", async (req, res) => {
       message.includes("directory") ||
       message.includes("Cannot determine");
 
-    res.status(isClientError ? 400 : 500).json({ success: false, error: message });
+    // Gemini unavailable (no key or quota exhausted) → 503.
+    const isGeminiUnavailable =
+      message.includes("GEMINI_API_KEY") ||
+      message.includes("quota") ||
+      message.includes("high demand") ||
+      message.includes("RESOURCE_EXHAUSTED");
+
+    const status = isClientError ? 400 : isGeminiUnavailable ? 503 : 500;
+    res.status(status).json({ success: false, error: message });
   }
 });

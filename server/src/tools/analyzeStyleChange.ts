@@ -1,9 +1,16 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { createLogger } from "../logger/index.js";
 import { readSourceFile } from "../services/fileReader.js";
 import { findFilesByClassName } from "../services/fileSearch.js";
 import { analyzeWithGemini } from "../services/geminiService.js";
+import { mapToTailwind } from "../services/tailwindMap.js";
 import type { EditSuggestion } from "../validation/schemas.js";
+
+const log = createLogger("analyze");
+
+/** Which analyzer to use. `local` = deterministic map; `ai` = Gemini. */
+export type AnalyzeMode = "local" | "ai";
 
 export interface AnalyzeStyleChangeInput {
   /** Relative path to the source file. Optional — when absent the server
@@ -13,12 +20,27 @@ export interface AnalyzeStyleChangeInput {
   value: string;
   className?: string;
   selector?: string;
+  /** "local" (default): deterministic Tailwind map only. "ai": use Gemini. */
+  mode?: AnalyzeMode;
 }
 
 export interface AnalyzeStyleChangeResult {
   /** The resolved (or auto-discovered) source file path. */
   file: string;
   suggestion: EditSuggestion;
+  /** Which analyzer produced the suggestion. */
+  source: AnalyzeMode;
+}
+
+/** Thrown when the local mapper can't resolve a change (caller should offer AI). */
+export class NoLocalMappingError extends Error {
+  constructor(property: string) {
+    super(
+      `No deterministic Tailwind mapping for "${property}" on this element. ` +
+        "Click 'Analyze with AI' to use Gemini.",
+    );
+    this.name = "NoLocalMappingError";
+  }
 }
 
 /**
@@ -31,6 +53,7 @@ export interface AnalyzeStyleChangeResult {
 export async function analyzeStyleChange(
   input: AnalyzeStyleChangeInput,
 ): Promise<AnalyzeStyleChangeResult> {
+  const mode: AnalyzeMode = input.mode ?? "local";
   let filePath = input.file?.trim();
 
   if (!filePath) {
@@ -55,6 +78,21 @@ export async function analyzeStyleChange(
   }
 
   const fileContent = await readSourceFile(filePath);
+
+  // Deterministic local mapper — instant, free, no rate limits.
+  if (mode === "local") {
+    const local = mapToTailwind(input.property, input.value, input.className);
+    if (local && fileContent.includes(local.replace)) {
+      log.info(
+        { file: filePath, replace: local.replace, with: local.with, source: "local" },
+        "resolved via local Tailwind map",
+      );
+      return { file: filePath, suggestion: local, source: "local" };
+    }
+    throw new NoLocalMappingError(input.property);
+  }
+
+  // AI mode — explicit user request to use Gemini.
   const suggestion = await analyzeWithGemini({
     filePath,
     fileContent,
@@ -64,7 +102,7 @@ export async function analyzeStyleChange(
     selector: input.selector,
   });
 
-  return { file: filePath, suggestion };
+  return { file: filePath, suggestion, source: "ai" };
 }
 
 export function registerAnalyzeStyleChangeTool(server: McpServer): void {

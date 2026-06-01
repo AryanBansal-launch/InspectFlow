@@ -1,0 +1,15 @@
+{
+  "name": "inspectflow-e2e",
+  "version": "0.1.0",
+  "private": true,
+  "description": "End-to-end tests for InspectFlow (detection core + full server pipeline).",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:detection": "playwright test detection",
+    "test:pipeline": "playwright test pipeline"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.1"
+  }
+}

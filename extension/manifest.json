@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "description": "Sync Chrome DevTools CSS changes back to your React/Next.js source with approval-gated AI edits.",
   "minimum_chrome_version": "116",
-  "permissions": ["debugger", "storage", "tabs"],
+  "permissions": ["storage", "tabs"],
   "host_permissions": [
     "http://localhost/*",
     "http://127.0.0.1/*"

@@ -5,9 +5,9 @@ export function Hero() {
         <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full"></span>
         DevTools → Source Code Sync
       </div>
-      <h1 className="text-5xl font-bold text-gray-900 max-w-3xl mx-auto leading-tight">
+      <h1 className="text-5xl font-bold text-[#0ac5b2] max-w-3xl mx-auto leading-tight">
         Edit styles visually,{" "}
-        <span className="text-indigo-600">persist them instantly</span>
+        <span className="text-[lab(38.4009_52.6132_-92.3857)]">persist them instantly</span>
       </h1>
       <p className="mt-6 text-xl text-gray-500 max-w-2xl mx-auto leading-relaxed">
         InspectFlow bridges Chrome DevTools and your React source code. Tweak

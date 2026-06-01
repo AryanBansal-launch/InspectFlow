@@ -72,7 +72,7 @@ function PricingCard({
       <button
         className={`mt-8 w-full py-2.5 rounded-xl text-sm font-semibold transition-colors ${
           highlighted
-            ? "bg-white text-indigo-600 hover:bg-indigo-50"
+            ? "bg-white text-[#0ac5b2] hover:bg-indigo-50"
             : "bg-indigo-600 text-white hover:bg-indigo-700"
         }`}
       >

@@ -1,0 +1,44 @@
+# InspectFlow — server + demo for a one-command tryout.
+#
+#   cp .env.example .env        # add your GEMINI_API_KEY (optional for local-only analysis)
+#   docker compose up --build
+#
+# Then load the extension (extension/dist) into Chrome and open http://localhost:3000.
+#
+# To use InspectFlow on YOUR OWN project instead of the demo:
+#   - point the `server` volume at your project:  - /abs/path/to/your/project:/project
+#   - run your project's dev server on the host (it watches the same files)
+#   - you can `docker compose up server` to start only the server.
+
+services:
+  server:
+    build: ./server
+    container_name: inspectflow-server
+    ports:
+      - "4399:4399"
+    environment:
+      HOST: 0.0.0.0
+      PORT: "4399"
+      PROJECT_ROOT: /project
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      LOG_PRETTY: "true"
+      CORS_ORIGINS: "*"
+    volumes:
+      # The project whose source files InspectFlow may edit. Swap ./demo for
+      # your own project to use InspectFlow on it.
+      - ./demo:/project
+    restart: unless-stopped
+
+  demo:
+    build: ./demo
+    container_name: inspectflow-demo
+    ports:
+      - "3000:3000"
+    environment:
+      # Reliable file-watching across the bind mount (esp. on macOS/Windows).
+      WATCHPACK_POLLING: "true"
+    volumes:
+      - ./demo:/app
+      - /app/node_modules
+    restart: unless-stopped

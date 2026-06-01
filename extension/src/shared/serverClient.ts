@@ -11,20 +11,23 @@ export class ServerError extends Error {
   }
 }
 
-const REQUEST_TIMEOUT_MS = 5000;
+const DEFAULT_TIMEOUT_MS = 5000;
+// AI analysis can take longer (model latency + server retries on 503).
+const AI_TIMEOUT_MS = 35000;
 
 /** Performs a fetch with a timeout, throwing on network/timeout errors. */
 async function fetchWithTimeout(
   url: string,
   init: RequestInit = {},
+  timeoutMs: number = DEFAULT_TIMEOUT_MS,
 ): Promise<Response> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fetch(url, { ...init, signal: controller.signal });
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") {
-      throw new Error(`Request to ${url} timed out after ${REQUEST_TIMEOUT_MS}ms`);
+      throw new Error(`Request to ${url} timed out after ${timeoutMs}ms`);
     }
     throw new Error(`Could not reach ${url}: ${(err as Error).message}`);
   } finally {
@@ -76,19 +79,29 @@ export interface AnalyzeResult {
   /** The resolved source file (may be auto-discovered when not supplied). */
   file?: string;
   suggestion?: { replace: string; with: string; reason?: string };
+  source?: "local" | "ai";
+  /** Set by the server (422) when local mapping failed but AI may work. */
+  canUseAi?: boolean;
   error?: string;
 }
 
-/** Calls `POST /analyze` to get a Gemini edit suggestion. */
+/**
+ * Calls `POST /analyze`. `mode` selects the deterministic local mapper
+ * ("local", instant) or Gemini ("ai"). AI uses a longer timeout.
+ */
 export async function analyzeChange(
   serverUrl: string,
-  payload: StyleChangePayload,
+  payload: StyleChangePayload & { mode: "local" | "ai" },
 ): Promise<AnalyzeResult> {
-  const res = await fetchWithTimeout(`${serverUrl}/analyze`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
+  const res = await fetchWithTimeout(
+    `${serverUrl}/analyze`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    payload.mode === "ai" ? AI_TIMEOUT_MS : DEFAULT_TIMEOUT_MS,
+  );
   return (await res.json()) as AnalyzeResult;
 }
 
