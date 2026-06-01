@@ -22,32 +22,66 @@ export interface ServerHealth {
 }
 
 /**
- * A CSS change captured from DevTools and (in Phase 4) sent to the server.
- * `file` is resolved from the inspected element's `data-source-file` attribute.
+ * A raw CSS change as extracted from the stylesheet diff —  the panel adds
+ * `file` and `className` from the inspected element's dataset before
+ * displaying it or sending it to the server.
  */
-export interface CapturedChange {
-  file?: string;
-  selector?: string;
+export interface RawCssChange {
+  selector: string;
   property: string;
   value: string;
-  className?: string;
 }
 
 /**
- * Messages sent to the background service worker. Discriminated on `type`.
+ * A CSS change enriched with React source-mapping info read from the
+ * `data-source-file` attribute of the currently selected element ($0).
+ */
+export interface CapturedChange extends RawCssChange {
+  id: string;
+  capturedAt: string;
+  /** Relative source-file path from `data-source-file` (if present). */
+  file?: string;
+  /** Current className string of the inspected element (if present). */
+  className?: string;
+}
+
+/** Live state of the debugger capture session. */
+export interface CaptureState {
+  active: boolean;
+  tabId: number | null;
+}
+
+/**
+ * Messages sent to the background service worker — discriminated on `type`.
  * Each request has a matching response in {@link MessageResponseMap}.
  */
 export type RequestMessage =
   | { type: "GET_SETTINGS" }
   | { type: "SET_SETTINGS"; settings: Partial<ExtensionSettings> }
-  | { type: "CHECK_SERVER" };
+  | { type: "CHECK_SERVER" }
+  | { type: "START_CAPTURE"; tabId: number }
+  | { type: "STOP_CAPTURE"; tabId: number }
+  | { type: "GET_CAPTURE_STATE" };
 
 /** Maps each request `type` to its response payload. */
 export interface MessageResponseMap {
   GET_SETTINGS: { settings: ExtensionSettings };
   SET_SETTINGS: { settings: ExtensionSettings };
   CHECK_SERVER: { reachable: boolean; health?: ServerHealth; error?: string };
+  START_CAPTURE: { success: boolean; error?: string };
+  STOP_CAPTURE: { success: boolean; error?: string };
+  GET_CAPTURE_STATE: CaptureState;
 }
+
+/**
+ * Messages pushed from the background service worker to panel ports —
+ * these flow over `chrome.runtime.Port` rather than one-shot sendMessage.
+ */
+export type PanelPushMessage =
+  | { type: "CAPTURE_STARTED"; tabId: number }
+  | { type: "CAPTURE_STOPPED" }
+  | { type: "CAPTURE_ERROR"; error: string }
+  | { type: "CSS_CHANGE_DETECTED"; rawChange: RawCssChange };
 
 /** A successful response envelope. */
 export interface OkResponse<T> {

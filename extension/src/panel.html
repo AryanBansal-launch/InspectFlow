@@ -4,31 +4,128 @@
     <meta charset="utf-8" />
     <title>InspectFlow</title>
     <link rel="stylesheet" href="styles/ui.css" />
+    <style>
+      .toolbar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 14px;
+        border-bottom: 1px solid var(--border);
+        background: var(--bg-elevated);
+        position: sticky;
+        top: 0;
+        z-index: 10;
+      }
+
+      .toolbar .spacer { flex: 1; }
+
+      .change-list {
+        padding: 8px 14px;
+      }
+
+      .change-card {
+        background: var(--bg-elevated);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 10px 12px;
+        margin: 6px 0;
+      }
+
+      .change-card:hover {
+        border-color: var(--accent);
+      }
+
+      .change-header {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        margin-bottom: 4px;
+      }
+
+      .change-property {
+        font-family: "SF Mono", ui-monospace, Menlo, monospace;
+        font-size: 12px;
+        color: var(--text);
+        font-weight: 600;
+      }
+
+      .change-value {
+        font-family: "SF Mono", ui-monospace, Menlo, monospace;
+        font-size: 12px;
+        color: var(--ok);
+      }
+
+      .change-selector {
+        font-family: "SF Mono", ui-monospace, Menlo, monospace;
+        font-size: 11px;
+        color: var(--accent);
+        margin-bottom: 2px;
+      }
+
+      .change-file {
+        font-size: 11px;
+        color: var(--text-muted);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .change-file.missing {
+        color: var(--warn);
+      }
+
+      .change-meta {
+        font-size: 10px;
+        color: var(--text-muted);
+        margin-top: 4px;
+      }
+
+      .badge-nofile {
+        font-size: 10px;
+        background: rgba(251,191,36,0.15);
+        color: var(--warn);
+        border-radius: 4px;
+        padding: 1px 5px;
+      }
+
+      button.capture-btn {
+        min-width: 100px;
+      }
+
+      button.capture-btn.active {
+        background: var(--err);
+      }
+
+      button.capture-btn.active:hover {
+        background: #ef4444;
+      }
+    </style>
   </head>
   <body>
-    <div class="app">
-      <header class="brand">
-        <img src="icons/icon-32.png" alt="InspectFlow" />
-        <h1>InspectFlow</h1>
-      </header>
+    <div class="toolbar">
+      <img src="icons/icon-16.png" alt="" />
+      <span style="font-weight:600; font-size:13px">InspectFlow</span>
+      <span class="spacer"></span>
+      <span class="status">
+        <span id="server-dot" class="dot"></span>
+        <span id="server-text" class="muted" style="font-size:11px">—</span>
+      </span>
+      <button id="capture-btn" class="capture-btn">Start Capture</button>
+      <button id="clear-btn" class="secondary" title="Clear captured changes">Clear</button>
+    </div>
 
-      <div class="row">
-        <span class="status">
-          <span id="server-dot" class="dot"></span>
-          <span id="server-text" class="muted">Checking server…</span>
-        </span>
-        <button id="refresh" class="secondary" style="margin-left: auto">Refresh</button>
-      </div>
+    <div id="capture-error" style="display:none; padding:8px 14px;">
+      <div class="card" style="border-color:var(--err); color:var(--err); font-size:12px;" id="capture-error-text"></div>
+    </div>
 
-      <p class="hint" id="inspected-target"></p>
+    <div id="target-row" style="padding:4px 14px 0; display:none;">
+      <span class="hint" id="inspected-target"></span>
+    </div>
 
-      <h2 style="font-size: 12px; color: var(--text-muted); margin: 14px 0 4px">
-        Captured changes
-      </h2>
-      <div id="changes">
-        <div class="empty">
-          No changes captured yet. Edit a style in the Elements panel to begin.
-        </div>
+    <div class="change-list" id="change-list">
+      <div class="empty" id="empty-msg">
+        Click <strong>Start Capture</strong>, then edit a style in the
+        Elements → Styles panel to begin.
       </div>
     </div>
 
