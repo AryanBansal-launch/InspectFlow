@@ -40,3 +40,59 @@ export async function checkHealth(serverUrl: string): Promise<ServerHealth> {
   }
   return (await res.json()) as ServerHealth;
 }
+
+/** Payload for `POST /style-change` — mirrors the server's `StyleChange` schema. */
+export interface StyleChangePayload {
+  file?: string;
+  selector?: string;
+  property: string;
+  value: string;
+  className?: string;
+}
+
+/** Shape of the `201` success response from `POST /style-change`. */
+export interface PostStyleChangeResult {
+  success: true;
+  change: {
+    id: string;
+    receivedAt: string;
+    file?: string;
+    selector?: string;
+    property: string;
+    value: string;
+    className?: string;
+  };
+}
+
+/** Shape of the `400` validation-error response from `POST /style-change`. */
+interface PostStyleChangeError {
+  success: false;
+  errors: Array<{ path: string; message: string }>;
+}
+
+/**
+ * Posts a captured style change to the MCP server.
+ * Throws `ServerError` on non-2xx responses, or a network `Error` on failure.
+ */
+export async function postStyleChange(
+  serverUrl: string,
+  payload: StyleChangePayload,
+): Promise<PostStyleChangeResult> {
+  const res = await fetchWithTimeout(`${serverUrl}/style-change`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (res.status === 400) {
+    const body = (await res.json()) as PostStyleChangeError;
+    const summary = body.errors.map((e) => `${e.path}: ${e.message}`).join("; ");
+    throw new ServerError(`Validation failed — ${summary}`, 400);
+  }
+
+  if (!res.ok) {
+    throw new ServerError(`Server returned ${res.status}`, res.status);
+  }
+
+  return (await res.json()) as PostStyleChangeResult;
+}

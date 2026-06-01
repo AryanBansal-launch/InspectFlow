@@ -1,22 +1,13 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { changeStore } from "../store/changeStore.js";
+import { registerAnalyzeStyleChangeTool } from "../tools/analyzeStyleChange.js";
 
-/**
- * Metadata advertised to MCP clients.
- */
 const SERVER_INFO = {
   name: "inspectflow",
   version: "0.1.0",
 } as const;
 
-/**
- * Registers every InspectFlow MCP tool on a server instance.
- *
- * Phase 1 exposes `list_recent_changes`, a live, read-only view of the changes
- * captured from DevTools. The analysis/preview/apply tools are registered by
- * their respective modules in later phases via this same hook.
- */
 function registerTools(server: McpServer): void {
   server.registerTool(
     "list_recent_changes",
@@ -47,18 +38,14 @@ function registerTools(server: McpServer): void {
       };
     },
   );
+
+  registerAnalyzeStyleChangeTool(server);
 }
 
-/**
- * Builds a fully configured MCP server instance. A fresh instance is created
- * per request in stateless HTTP mode (see {@link ./express.ts}).
- */
 export function createMcpServer(): McpServer {
   const server = new McpServer(SERVER_INFO, {
     capabilities: { tools: {} },
   });
-
   registerTools(server);
-
   return server;
 }

@@ -37,6 +37,14 @@ let captureActive = false;
 const changes: CapturedChange[] = [];
 let changeCounter = 0;
 
+type SendStatus =
+  | { state: "sending" }
+  | { state: "sent"; serverId: string }
+  | { state: "failed"; error: string };
+
+/** Tracks the server-send status for each change by id. */
+const sendStatuses = new Map<string, SendStatus>();
+
 // ---------------------------------------------------------------------------
 // Port connection to background
 // ---------------------------------------------------------------------------
@@ -136,10 +144,36 @@ async function enrichAndRecord(rawChange: RawCssChange): Promise<void> {
 
 /**
  * Called after every captured change is enriched with source info.
- * Phase 4 extends this to POST the change to the MCP server.
+ * Sends the change to the MCP server and reflects the result in the card UI.
  */
-function onChangeCaptured(_change: CapturedChange): void {
-  // Intentionally empty in Phase 3 — Phase 4 sends to server here.
+function onChangeCaptured(change: CapturedChange): void {
+  sendStatuses.set(change.id, { state: "sending" });
+  updateCardSendStatus(change.id);
+
+  sendMessage({ type: "SEND_STYLE_CHANGE", change })
+    .then((res) => {
+      if (!res.ok) {
+        sendStatuses.set(change.id, { state: "failed", error: res.error });
+      } else if (res.data.success) {
+        sendStatuses.set(change.id, {
+          state: "sent",
+          serverId: res.data.serverId ?? "",
+        });
+      } else {
+        sendStatuses.set(change.id, {
+          state: "failed",
+          error: res.data.error ?? "Unknown error",
+        });
+      }
+      updateCardSendStatus(change.id);
+    })
+    .catch((e: unknown) => {
+      sendStatuses.set(change.id, {
+        state: "failed",
+        error: (e as Error).message,
+      });
+      updateCardSendStatus(change.id);
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -297,8 +331,42 @@ function buildChangeCard(change: CapturedChange): HTMLElement {
     meta.textContent += ` · class="${change.className.slice(0, 60)}${change.className.length > 60 ? "…" : ""}"`;
   }
 
-  card.append(header, selector, fileEl, meta);
+  const sendStatusEl = document.createElement("div");
+  sendStatusEl.className = "send-status";
+  sendStatusEl.dataset["statusFor"] = change.id;
+
+  card.append(header, selector, fileEl, meta, sendStatusEl);
   return card;
+}
+
+/** Updates the send-status indicator inside an already-rendered card. */
+function updateCardSendStatus(changeId: string): void {
+  const el = changeListEl.querySelector<HTMLElement>(
+    `[data-status-for="${changeId}"]`,
+  );
+  if (!el) return;
+
+  const status = sendStatuses.get(changeId);
+  if (!status) {
+    el.textContent = "";
+    return;
+  }
+
+  switch (status.state) {
+    case "sending":
+      el.className = "send-status sending";
+      el.textContent = "Sending to server…";
+      break;
+    case "sent":
+      el.className = "send-status sent";
+      el.textContent = "✓ Sent to server";
+      break;
+    case "failed":
+      el.className = "send-status failed";
+      el.textContent = `✗ ${status.error}`;
+      el.title = status.error;
+      break;
+  }
 }
 
 // ---------------------------------------------------------------------------

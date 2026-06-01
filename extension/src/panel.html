@@ -99,6 +99,16 @@
       button.capture-btn.active:hover {
         background: #ef4444;
       }
+
+      .send-status {
+        font-size: 10px;
+        margin-top: 3px;
+        min-height: 14px;
+      }
+
+      .send-status.sending { color: var(--text-muted); }
+      .send-status.sent    { color: var(--ok); }
+      .send-status.failed  { color: var(--err); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     </style>
   </head>
   <body>

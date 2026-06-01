@@ -61,7 +61,8 @@ export type RequestMessage =
   | { type: "CHECK_SERVER" }
   | { type: "START_CAPTURE"; tabId: number }
   | { type: "STOP_CAPTURE"; tabId: number }
-  | { type: "GET_CAPTURE_STATE" };
+  | { type: "GET_CAPTURE_STATE" }
+  | { type: "SEND_STYLE_CHANGE"; change: CapturedChange };
 
 /** Maps each request `type` to its response payload. */
 export interface MessageResponseMap {
@@ -71,6 +72,7 @@ export interface MessageResponseMap {
   START_CAPTURE: { success: boolean; error?: string };
   STOP_CAPTURE: { success: boolean; error?: string };
   GET_CAPTURE_STATE: CaptureState;
+  SEND_STYLE_CHANGE: { success: boolean; serverId?: string; error?: string };
 }
 
 /**

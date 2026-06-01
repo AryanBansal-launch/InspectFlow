@@ -8,7 +8,7 @@
 
 import { diffStylesheets } from "./shared/cssParser.js";
 import { getSettings, setSettings } from "./shared/settings.js";
-import { checkHealth } from "./shared/serverClient.js";
+import { checkHealth, postStyleChange } from "./shared/serverClient.js";
 import type {
   CaptureState,
   ErrResponse,
@@ -313,6 +313,21 @@ async function handleMessage(
     }
     case "GET_CAPTURE_STATE": {
       return ok(capture.getState());
+    }
+    case "SEND_STYLE_CHANGE": {
+      const settings = await getSettings();
+      try {
+        const result = await postStyleChange(settings.serverUrl, {
+          file: message.change.file,
+          selector: message.change.selector,
+          property: message.change.property,
+          value: message.change.value,
+          className: message.change.className,
+        });
+        return ok({ success: true, serverId: result.change.id });
+      } catch (e) {
+        return ok({ success: false, error: (e as Error).message });
+      }
     }
     default: {
       const exhaustive: never = message;
