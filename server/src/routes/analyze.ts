@@ -1,32 +1,55 @@
 import { Router } from "express";
+import { z } from "zod";
 import { analyzeStyleChange } from "../tools/analyzeStyleChange.js";
 import { createLogger } from "../logger/index.js";
 import { hasGeminiKey } from "../config/env.js";
-import { analyzeRequestSchema } from "../services/geminiService.js";
 import { safeValidate } from "../validation/schemas.js";
 
 const log = createLogger("routes:analyze");
-
 export const analyzeRouter: Router = Router();
+
+const analyzeRequestSchema = z.object({
+  file: z
+    .string()
+    .trim()
+    .optional()
+    .refine((v) => !v || !v.includes("\0"), "file must not contain null bytes")
+    .refine(
+      (v) => !v || !v.split(/[\\/]/).includes(".."),
+      "file must not contain '..' segments",
+    )
+    .refine(
+      (v) => !v || !/^([a-zA-Z]:[\\/]|[\\/])/.test(v),
+      "file must be a relative path",
+    ),
+  property: z
+    .string()
+    .trim()
+    .min(1, "property is required")
+    .regex(/^-?[a-zA-Z][a-zA-Z0-9-]*$/, "must be a valid CSS property name"),
+  value: z.string().trim().min(1, "value is required").max(2000),
+  className: z.string().trim().max(4000).optional(),
+  selector: z.string().trim().max(1000).optional(),
+});
 
 /**
  * POST /analyze
  *
  * Reads the source file and calls Gemini to produce a find-and-replace
- * edit suggestion. Called by the Chrome extension after capturing a change
- * (Phase 5+).
+ * edit suggestion.
  *
- * Body: { file, property, value, className?, selector? }
- * 200: { success: true, suggestion: { replace, with, reason? } }
- * 400: { success: false, errors: [...] }
- * 503: { success: false, error: "GEMINI_API_KEY not configured" }
+ * `file` is optional — when omitted the server searches PROJECT_ROOT for a
+ * source file containing `className` and uses the best match automatically.
+ *
+ * 200: { success: true, file: "src/...", suggestion: { replace, with, reason? } }
+ * 400: validation error or file not found
+ * 503: GEMINI_API_KEY not configured
  */
 analyzeRouter.post("/analyze", async (req, res) => {
   if (!hasGeminiKey()) {
     res.status(503).json({
       success: false,
-      error:
-        "GEMINI_API_KEY is not configured. Add it to .env and restart the server.",
+      error: "GEMINI_API_KEY is not configured. Add it to .env and restart the server.",
     });
     return;
   }
@@ -39,26 +62,20 @@ analyzeRouter.post("/analyze", async (req, res) => {
   }
 
   const { file, property, value, className, selector } = result.data;
-  log.info({ file, property, value }, "analyze request");
+  log.info({ file: file ?? "(auto-discover)", property, value }, "analyze request");
 
   try {
-    const suggestion = await analyzeStyleChange({
-      file,
-      property,
-      value,
-      className,
-      selector,
-    });
-    res.json({ success: true, suggestion });
+    const analysis = await analyzeStyleChange({ file, property, value, className, selector });
+    res.json({ success: true, file: analysis.file, suggestion: analysis.suggestion });
   } catch (error) {
     const message = (error as Error).message;
     log.error({ err: error, file, property }, "analysis failed");
 
-    // Surface file-not-found / path errors as 400, everything else as 500.
     const isClientError =
       message.includes("not found") ||
       message.includes("outside the project root") ||
-      message.includes("directory");
+      message.includes("directory") ||
+      message.includes("Cannot determine");
 
     res.status(isClientError ? 400 : 500).json({ success: false, error: message });
   }

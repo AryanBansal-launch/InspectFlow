@@ -8,7 +8,13 @@
 
 import { diffStylesheets } from "./shared/cssParser.js";
 import { getSettings, setSettings } from "./shared/settings.js";
-import { checkHealth, postStyleChange } from "./shared/serverClient.js";
+import {
+  analyzeChange,
+  applyChange,
+  checkHealth,
+  postStyleChange,
+  previewChange,
+} from "./shared/serverClient.js";
 import type {
   CaptureState,
   ErrResponse,
@@ -325,6 +331,47 @@ async function handleMessage(
           className: message.change.className,
         });
         return ok({ success: true, serverId: result.change.id });
+      } catch (e) {
+        return ok({ success: false, error: (e as Error).message });
+      }
+    }
+    case "ANALYZE_CHANGE": {
+      const settings = await getSettings();
+      try {
+        const result = await analyzeChange(settings.serverUrl, {
+          file: message.change.file,       // optional — server auto-discovers if absent
+          selector: message.change.selector,
+          property: message.change.property,
+          value: message.change.value,
+          className: message.change.className,
+        });
+        return ok(result);
+      } catch (e) {
+        return ok({ success: false, error: (e as Error).message });
+      }
+    }
+    case "PREVIEW_CHANGE": {
+      const settings = await getSettings();
+      try {
+        const result = await previewChange(settings.serverUrl, {
+          file: message.file,
+          replace: message.replace,
+          with: message.with,
+        });
+        return ok(result);
+      } catch (e) {
+        return ok({ success: false, error: (e as Error).message });
+      }
+    }
+    case "APPLY_CHANGE": {
+      const settings = await getSettings();
+      try {
+        const result = await applyChange(settings.serverUrl, {
+          file: message.file,
+          replace: message.replace,
+          with: message.with,
+        });
+        return ok(result);
       } catch (e) {
         return ok({ success: false, error: (e as Error).message });
       }

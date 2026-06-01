@@ -70,6 +70,72 @@ interface PostStyleChangeError {
   errors: Array<{ path: string; message: string }>;
 }
 
+/** Result shape from `POST /analyze`. */
+export interface AnalyzeResult {
+  success: boolean;
+  /** The resolved source file (may be auto-discovered when not supplied). */
+  file?: string;
+  suggestion?: { replace: string; with: string; reason?: string };
+  error?: string;
+}
+
+/** Calls `POST /analyze` to get a Gemini edit suggestion. */
+export async function analyzeChange(
+  serverUrl: string,
+  payload: StyleChangePayload,
+): Promise<AnalyzeResult> {
+  const res = await fetchWithTimeout(`${serverUrl}/analyze`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return (await res.json()) as AnalyzeResult;
+}
+
+/** Result shape from `POST /preview`. */
+export interface PreviewResult {
+  success: boolean;
+  diff?: string;
+  contextDiff?: string;
+  lineNumber?: number;
+  found?: boolean;
+  error?: string;
+}
+
+/** Calls `POST /preview` to get a contextual diff. */
+export async function previewChange(
+  serverUrl: string,
+  payload: { file: string; replace: string; with: string },
+): Promise<PreviewResult> {
+  const res = await fetchWithTimeout(`${serverUrl}/preview`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return (await res.json()) as PreviewResult;
+}
+
+/** Result shape from `POST /apply`. */
+export interface ApplyResult {
+  success: boolean;
+  lineNumber?: number;
+  linesChanged?: number;
+  error?: string;
+}
+
+/** Calls `POST /apply` to write the approved edit to disk. */
+export async function applyChange(
+  serverUrl: string,
+  payload: { file: string; replace: string; with: string },
+): Promise<ApplyResult> {
+  const res = await fetchWithTimeout(`${serverUrl}/apply`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return (await res.json()) as ApplyResult;
+}
+
 /**
  * Posts a captured style change to the MCP server.
  * Throws `ServerError` on non-2xx responses, or a network `Error` on failure.

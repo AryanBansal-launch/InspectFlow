@@ -62,7 +62,10 @@ export type RequestMessage =
   | { type: "START_CAPTURE"; tabId: number }
   | { type: "STOP_CAPTURE"; tabId: number }
   | { type: "GET_CAPTURE_STATE" }
-  | { type: "SEND_STYLE_CHANGE"; change: CapturedChange };
+  | { type: "SEND_STYLE_CHANGE"; change: CapturedChange }
+  | { type: "ANALYZE_CHANGE"; change: CapturedChange }
+  | { type: "PREVIEW_CHANGE"; file: string; replace: string; with: string }
+  | { type: "APPLY_CHANGE"; file: string; replace: string; with: string };
 
 /** Maps each request `type` to its response payload. */
 export interface MessageResponseMap {
@@ -73,6 +76,27 @@ export interface MessageResponseMap {
   STOP_CAPTURE: { success: boolean; error?: string };
   GET_CAPTURE_STATE: CaptureState;
   SEND_STYLE_CHANGE: { success: boolean; serverId?: string; error?: string };
+  ANALYZE_CHANGE: {
+    success: boolean;
+    /** The resolved (or auto-discovered) source file. */
+    file?: string;
+    suggestion?: { replace: string; with: string; reason?: string };
+    error?: string;
+  };
+  PREVIEW_CHANGE: {
+    success: boolean;
+    diff?: string;
+    contextDiff?: string;
+    lineNumber?: number;
+    found?: boolean;
+    error?: string;
+  };
+  APPLY_CHANGE: {
+    success: boolean;
+    lineNumber?: number;
+    linesChanged?: number;
+    error?: string;
+  };
 }
 
 /**

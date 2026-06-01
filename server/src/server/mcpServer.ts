@@ -2,6 +2,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { changeStore } from "../store/changeStore.js";
 import { registerAnalyzeStyleChangeTool } from "../tools/analyzeStyleChange.js";
+import { registerApplyChangeTool } from "../tools/applyChange.js";
+import { registerPreviewChangeTool } from "../tools/previewChange.js";
 
 const SERVER_INFO = {
   name: "inspectflow",
@@ -40,6 +42,8 @@ function registerTools(server: McpServer): void {
   );
 
   registerAnalyzeStyleChangeTool(server);
+  registerPreviewChangeTool(server);
+  registerApplyChangeTool(server);
 }
 
 export function createMcpServer(): McpServer {

@@ -109,6 +109,51 @@
       .send-status.sending { color: var(--text-muted); }
       .send-status.sent    { color: var(--ok); }
       .send-status.failed  { color: var(--err); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+      .card-actions {
+        display: flex;
+        gap: 6px;
+        margin-top: 8px;
+      }
+
+      .card-actions button {
+        font-size: 11px;
+        padding: 4px 10px;
+      }
+
+      .diff-block {
+        margin-top: 8px;
+        background: #12131c;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 8px 10px;
+        overflow-x: auto;
+      }
+
+      .diff-block pre {
+        margin: 0;
+        font-size: 11px;
+        line-height: 1.6;
+        white-space: pre-wrap;
+        word-break: break-all;
+      }
+
+      .diff-line-del  { color: var(--del); }
+      .diff-line-add  { color: var(--add); }
+      .diff-line-ctx  { color: var(--text-muted); }
+      .diff-line-hdr  { color: var(--accent); }
+
+      .diff-label {
+        font-size: 10px;
+        color: var(--text-muted);
+        margin-bottom: 4px;
+      }
+
+      .apply-success {
+        font-size: 11px;
+        color: var(--ok);
+        margin-top: 4px;
+      }
     </style>
   </head>
   <body>
