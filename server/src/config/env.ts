@@ -44,7 +44,7 @@ const envSchema = z.object({
         : path.resolve(process.cwd()),
     ),
   LOG_LEVEL: LogLevel.default("info"),
-  LOG_PRETTY: booleanFromString.default(true),
+  LOG_PRETTY: booleanFromString.default(process.env["NODE_ENV"] !== "production" && process.stdout.isTTY),
   CORS_ORIGINS: z
     .string()
     .trim()

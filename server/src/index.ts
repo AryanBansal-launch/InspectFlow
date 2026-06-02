@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import type { Server } from "node:http";
 import { env, hasGeminiKey } from "./config/env.js";
 import { logger } from "./logger/index.js";

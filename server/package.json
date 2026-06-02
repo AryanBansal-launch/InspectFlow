@@ -1,19 +1,35 @@
 {
   "name": "inspectflow-server",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.1.1",
   "description": "InspectFlow MCP server — sync Chrome DevTools CSS changes back to React/Next.js source code with AI-assisted, approval-gated edits.",
   "type": "module",
   "engines": {
     "node": ">=20"
   },
   "main": "dist/index.js",
+  "bin": {
+    "inspectflow-server": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "mcp",
+    "devtools",
+    "css",
+    "tailwind",
+    "react",
+    "nextjs",
+    "inspector"
+  ],
+  "license": "MIT",
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build"
   },
   "dependencies": {
     "@babel/parser": "^7.29.7",
@@ -23,6 +39,7 @@
     "express": "^4.21.2",
     "pino": "^9.6.0",
     "pino-http": "^10.4.0",
+    "pino-pretty": "^13.0.0",
     "recast": "^0.23.11",
     "zod": "^3.25.76"
   },
@@ -30,7 +47,6 @@
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/node": "^22.10.5",
-    "pino-pretty": "^13.0.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3"
   }

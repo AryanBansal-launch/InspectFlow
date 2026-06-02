@@ -18,151 +18,88 @@ Local MCP server  ──┬── deterministic Tailwind map  (instant, no API) 
 Diff preview → Apply → Babel-AST file write → hot reload
 ```
 
-**Three parts:**
-
-| Part | What it is | Runs where |
-| --- | --- | --- |
-| `server/` | Local MCP server (Node + Express). Reads/writes your source, exposes MCP tools + an HTTP API. | Host or Docker |
-| `extension/` | Chrome MV3 DevTools extension. Captures the style change and drives the flow. | Your browser (load unpacked) |
-| `demo/` | A Next.js + Tailwind app to try it on. | Host or Docker |
-
-> The extension **cannot** be containerized — Chrome loads it directly. Docker
-> covers the server and the demo; the extension is always a one-time
-> "Load unpacked".
-
 ---
 
-## Prerequisites
+## Quick start
 
-- **Google Chrome** (or any Chromium browser with DevTools).
-- **Node.js ≥ 20** — for the local route, and required to build the extension either way.
-- **Docker** (optional) — for the containerized server + demo.
-- A **Gemini API key** (optional) — only for the "Analyze with AI" button. The
-  deterministic "Analyze" button needs no key. Get one at
-  https://aistudio.google.com/apikey.
+**Prerequisites:** Google Chrome · Node.js ≥ 20
 
----
+### Step 1 — Load the Chrome extension
 
-## Step 1 — Build & load the Chrome extension (required for both routes)
+1. Download `extension-dist.zip` from the [latest release](../../releases/latest) and unzip it.
+2. Open `chrome://extensions` → toggle **Developer mode** on → **Load unpacked** → select the unzipped folder.
+3. The InspectFlow icon (indigo square) appears in the toolbar.
 
-The extension is never dockerized, so build it first.
+### Step 2 — Start the MCP server
+
+Run this inside your project's root directory:
 
 ```bash
-cd extension
-npm install
-npm run build        # outputs extension/dist
+npx inspectflow-server@latest
 ```
 
-Then in Chrome:
+The server starts on **http://localhost:4399** and uses the current directory as the project root (the directory it searches and writes files in).
 
-1. Open `chrome://extensions`.
-2. Toggle **Developer mode** on (top-right).
-3. Click **Load unpacked** → select the `extension/dist` folder.
-4. The InspectFlow icon (indigo square) appears in the toolbar.
-
-> Whenever you rebuild the extension, click the **↺ refresh** icon on its
-> `chrome://extensions` card, then fully close & reopen DevTools.
-
----
-
-## Step 2 — Start the server + demo
-
-Pick **one** route.
-
-### Route A — Docker (one command)
+Optional — for Gemini AI analysis:
 
 ```bash
-cp .env.example .env        # optional: add GEMINI_API_KEY for the AI button
-docker compose up --build
+GEMINI_API_KEY=your_key npx inspectflow-server@latest
 ```
 
-This starts:
-- the MCP server on **http://localhost:4399** (sandboxed to `./demo`)
-- the demo app on **http://localhost:3000**
+### Step 3 — Add to your AI client
 
-### Route B — Local (Node, two terminals)
+**Claude Code** — add to `.claude/settings.json` in your project:
 
-```bash
-# Terminal 1 — MCP server (pointed at the demo)
-cd server
-npm install
-cp .env.example .env                       # optional: add GEMINI_API_KEY
-echo "PROJECT_ROOT=$(pwd)/../demo" >> .env  # the project it may edit
-npm run build && npm start                 # http://localhost:4399
-
-# Terminal 2 — demo app
-cd demo
-npm install
-npm run dev                                # http://localhost:3000
+```json
+{
+  "mcpServers": {
+    "inspectflow": {
+      "type": "http",
+      "url": "http://127.0.0.1:4399/mcp"
+    }
+  }
+}
 ```
 
-Verify the server is up:
+**Claude Desktop** — edit `claude_desktop_config.json`:
 
-```bash
-curl http://localhost:4399/health
-# { "status": "ok", "projectRoot": ".../demo", "geminiConfigured": true|false, ... }
+```json
+{
+  "mcpServers": {
+    "inspectflow": {
+      "command": "npx",
+      "args": ["-y", "inspectflow-server@latest"],
+      "env": {
+        "PROJECT_ROOT": "/absolute/path/to/your/project"
+      }
+    }
+  }
+}
 ```
 
----
+> Claude Desktop doesn't run the server from your project directory, so
+> `PROJECT_ROOT` must be set explicitly.
 
-## Step 3 — Connect the extension
+### Step 4 — The edit loop
 
-1. Click the **InspectFlow toolbar icon**.
-2. Confirm the server URL is `http://127.0.0.1:4399`, click **Test** →
-   you should see **Connected** (green = Gemini ready, amber = no key, which is
-   fine — the local Analyze still works).
-
----
-
-## Step 4 — The edit loop
-
-1. Open **http://localhost:3000** in Chrome.
-2. Open **DevTools** (`F12` / `⌘⌥I`) → click the **InspectFlow** tab.
+1. Open your app in Chrome, open **DevTools** (`F12` / `⌘⌥I`) → click the **InspectFlow** tab.
+2. Confirm the server URL is `http://127.0.0.1:4399`, click **Test** → you should see **Connected**.
 3. Click **Start Capture** (button turns red).
-4. In the **Elements** panel, **click an element** (e.g. a card or heading).
-5. In the **Styles** panel, change a value — e.g. `padding: 16px` → `32px` —
-   and press **Enter**.
-6. Within ~½ second a **change card** appears in the InspectFlow panel
-   (`✓ Sent to server`).
-7. Click **Analyze** — the server finds the source file by the element's
-   className and maps the change to a Tailwind class swap **instantly** (no API).
-   - For anything the deterministic mapper can't handle (e.g. `box-shadow`),
-     click **Analyze with AI** instead (needs a Gemini key + quota).
-8. A **contextual diff** appears, e.g.:
-
-   ```diff
-   src/components/CardShowcase.tsx:3 · local
-   - <div className="... p-6 ...">
-   + <div className="... p-8 ...">
-   ```
-
-9. Click **Apply** → the file is written via Babel AST.
-10. Your dev server hot-reloads → the page updates → **refresh confirms it persists.**
+4. In **Elements**, click an element. In **Styles**, change a value (e.g. `padding: 16px → 32px`) and press **Enter**.
+5. A change card appears in the InspectFlow panel within ~½ second.
+6. Click **Analyze** — finds the source file by `className` and maps the CSS change to a Tailwind class swap instantly (no API needed).
+   - For properties the local mapper can't handle (e.g. `box-shadow`), use **Analyze with AI** instead (requires a Gemini key).
+7. Review the diff, click **Apply** → the file is written via Babel AST → dev server hot-reloads.
 
 ---
 
 ## Using InspectFlow on your own project
 
 Nothing to add to your app — no annotations, no SDK. The server discovers the
-right file by searching your project for the element's `className`.
+right source file by searching for the element's `className`.
 
-**Docker:** edit `docker-compose.yml`, point the `server` volume at your project,
-and run only the server:
-
-```yaml
-services:
-  server:
-    volumes:
-      - /abs/path/to/your/project:/project
-```
-```bash
-docker compose up server          # then run your own dev server on the host
-```
-
-**Local:** set `PROJECT_ROOT` to your project's absolute path in `server/.env`
-and restart the server. Run your project's dev server as usual.
-
-Supported: React, Next.js (App Router), Tailwind CSS, plain CSS/CSS Modules.
+Run `npx inspectflow-server@latest` from your project root and start your dev
+server as usual. Supported: React, Next.js (App Router), Tailwind CSS, plain CSS/CSS Modules.
 
 ---
 
@@ -173,14 +110,12 @@ Supported: React, Next.js (App Router), Tailwind CSS, plain CSS/CSS Modules.
 | **Analyze** | Deterministic Tailwind map | Instant | No | padding, margin, gap, width/height, font-size, font-weight, border-radius, colors (incl. off-scale → `p-[17px]`, rgb → `text-[#0000ff]`) |
 | **Analyze with AI** | Gemini | ~2–10 s | Yes | Anything else / ambiguous cases |
 
-The free Gemini tier is ~20 requests/day — if you hit a quota error, just use the
-deterministic **Analyze** button, which covers the common edits with no API at all.
+The free Gemini tier is ~20 requests/day. If you hit a quota error, fall back to
+the deterministic **Analyze** button, which covers the common edits with no API at all.
 
 ---
 
 ## MCP tools (for AI clients like Claude)
-
-Point an MCP client at `http://127.0.0.1:4399/mcp`:
 
 | Tool | Purpose |
 | --- | --- |
@@ -189,25 +124,67 @@ Point an MCP client at `http://127.0.0.1:4399/mcp`:
 | `preview_change` | Unified diff for a proposed edit |
 | `apply_change` | Write an approved edit via Babel AST |
 
-```jsonc
-// .claude/settings.json
-{ "mcpServers": { "inspectflow": { "type": "http", "url": "http://127.0.0.1:4399/mcp" } } }
-```
-
 ---
 
-## Environment variables (server)
+## Environment variables
 
 | Variable | Default | Notes |
 | --- | --- | --- |
 | `GEMINI_API_KEY` | — | Only for "Analyze with AI". |
 | `GEMINI_MODEL` | `gemini-2.5-flash` | Any model your key can access. |
 | `PORT` | `4399` | HTTP port. |
-| `HOST` | `127.0.0.1` | Use `0.0.0.0` in Docker (compose sets this). |
+| `HOST` | `127.0.0.1` | Use `0.0.0.0` in Docker. |
 | `PROJECT_ROOT` | `cwd` | Absolute path; all reads/writes are sandboxed here. |
 | `LOG_LEVEL` | `info` | `trace`…`error`. |
-| `LOG_PRETTY` | `true` | `false` for JSON logs. |
+| `LOG_PRETTY` | auto | `true` in a TTY terminal, `false` otherwise (JSON). |
 | `CORS_ORIGINS` | `*` | Comma-separated or `*`. |
+
+---
+
+## Self-hosted / Docker
+
+For contributors or if you prefer to run from source.
+
+**Prerequisites:** Docker, Node.js ≥ 20
+
+```bash
+git clone https://github.com/your-username/InspectFlow.git
+cd InspectFlow
+```
+
+### Route A — Docker (server + demo in one command)
+
+```bash
+cp .env.example .env        # optional: add GEMINI_API_KEY
+docker compose up --build
+```
+
+- MCP server → **http://localhost:4399**
+- Demo app → **http://localhost:3000**
+
+### Route B — Local (two terminals)
+
+```bash
+# Terminal 1 — MCP server pointed at the demo
+cd server
+npm install
+cp .env.example .env
+echo "PROJECT_ROOT=$(pwd)/../demo" >> .env
+npm run build && npm start
+
+# Terminal 2 — demo app
+cd demo
+npm install
+npm run dev
+```
+
+Build the extension:
+
+```bash
+cd extension
+npm install
+npm run build        # outputs extension/dist — load this in chrome://extensions
+```
 
 ---
 
@@ -229,13 +206,13 @@ preview/apply + hot reload, then restores the demo file.
 
 | Symptom | Fix |
 | --- | --- |
-| Nothing appears on a style change | Make sure you **selected an element** first and pressed **Enter** to commit the edit. Capture follows the selected element (`$0`). |
+| Nothing appears on a style change | Select an element first, then press **Enter** to commit the edit in the Styles panel. |
 | "Server unreachable" in the panel | Server not running, or wrong URL in the popup. Check `curl localhost:4399/health`. |
-| "No deterministic mapping" | Click **Analyze with AI**, or the property isn't a simple Tailwind utility. |
+| "No deterministic mapping" | Use **Analyze with AI**, or the property isn't a simple Tailwind utility. |
 | "Gemini quota exceeded" | Use the deterministic **Analyze** button, or wait for the daily quota to reset. |
-| "No source file found" | The element's `className` must be a **static string** in source (not built with `cn()`/`clsx()` runtime concatenation). |
+| "No source file found" | The element's `className` must be a static string in source — not built with `cn()`/`clsx()` at runtime. |
 | "Extension context invalidated" | You reloaded the extension while DevTools was open — fully close and reopen DevTools. |
-| Page doesn't hot-reload after Apply | Confirm your dev server is running and watching the same files (`WATCHPACK_POLLING=true` is set for the dockerized demo). |
+| Page doesn't hot-reload after Apply | Confirm your dev server is running and watching the same files. |
 
 ---
 
