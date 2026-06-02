@@ -18,6 +18,8 @@ Local MCP server  ──┬── deterministic Tailwind map  (instant, no API) 
 Diff preview → Apply → Babel-AST file write → hot reload
 ```
 
+**New here? See [QUICKSTART.md](QUICKSTART.md) for a 4-step setup guide.**
+
 ---
 
 ## Quick start
@@ -148,7 +150,7 @@ For contributors or if you prefer to run from source.
 **Prerequisites:** Docker, Node.js ≥ 20
 
 ```bash
-git clone https://github.com/your-username/InspectFlow.git
+git clone https://github.com/AryanBansal-launch/InspectFlow.git
 cd InspectFlow
 ```
 
