@@ -50,6 +50,7 @@ const changeListEl = document.getElementById("change-list") as HTMLDivElement;
 // ---------------------------------------------------------------------------
 
 let captureActive = false;
+let geminiConfigured = false;
 const changes: CapturedChange[] = [];
 let changeCounter = 0;
 
@@ -369,8 +370,10 @@ async function refreshServerStatus(): Promise<void> {
       return;
     }
     const h = res.data.health!;
-    serverDotEl.className = h.geminiConfigured ? "dot ok" : "dot warn";
-    serverTextEl.textContent = h.geminiConfigured ? "Gemini ready" : "No Gemini key";
+    geminiConfigured = h.geminiConfigured ?? false;
+    serverDotEl.className = geminiConfigured ? "dot ok" : "dot warn";
+    serverTextEl.textContent = geminiConfigured ? "Gemini ready" : "No Gemini key";
+    renderChanges();
   } catch {
     serverDotEl.className = "dot err";
     serverTextEl.textContent = "Server unreachable";
@@ -478,10 +481,25 @@ function renderAnalyzeButtons(container: HTMLElement, change: CapturedChange): v
   const ai = document.createElement("button");
   ai.className = "secondary";
   ai.textContent = "Analyze with AI";
-  ai.title = "Use Gemini (slower, needs API quota)";
-  ai.addEventListener("click", () => void analyzeChange(change, "ai"));
 
-  container.append(local, ai);
+  if (!geminiConfigured) {
+    ai.disabled = true;
+    // Wrap in a span so the tooltip is visible even when the button is disabled.
+    const aiWrapper = document.createElement("span");
+    aiWrapper.style.cssText = "display:inline-block; cursor:help;";
+    aiWrapper.title =
+      "Gemini API key not configured.\n\n" +
+      "To enable AI analysis:\n" +
+      "1. Get a free key at aistudio.google.com/apikey\n" +
+      "2. Add GEMINI_API_KEY=your-key to server/.env\n" +
+      "3. Restart the server (npm run dev inside server/)";
+    aiWrapper.appendChild(ai);
+    container.append(local, aiWrapper);
+  } else {
+    ai.title = "Use Gemini for smarter analysis (slower, uses API quota)";
+    ai.addEventListener("click", () => void analyzeChange(change, "ai"));
+    container.append(local, ai);
+  }
 }
 
 function updateCardAnalysis(changeId: string, change: CapturedChange): void {
