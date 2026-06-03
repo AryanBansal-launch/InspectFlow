@@ -85,13 +85,20 @@ export interface AnalyzeResult {
   error?: string;
 }
 
+export interface AnalyzePayload extends StyleChangePayload {
+  mode: "local" | "ai";
+  changeType?: "css" | "text";
+  previousValue?: string;
+}
+
 /**
  * Calls `POST /analyze`. `mode` selects the deterministic local mapper
  * ("local", instant) or Gemini ("ai"). AI uses a longer timeout.
+ * For text changes, set `changeType: "text"` and pass `previousValue`.
  */
 export async function analyzeChange(
   serverUrl: string,
-  payload: StyleChangePayload & { mode: "local" | "ai" },
+  payload: AnalyzePayload,
 ): Promise<AnalyzeResult> {
   const res = await fetchWithTimeout(
     `${serverUrl}/analyze`,

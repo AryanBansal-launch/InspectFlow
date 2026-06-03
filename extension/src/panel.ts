@@ -97,6 +97,7 @@ interface ElementSnapshot {
   className: string;
   file: string;
   props: Record<string, string>;
+  directText: string;
 }
 
 /** Expression evaluated in the page context against the selected element ($0). */
@@ -113,12 +114,18 @@ const SNAPSHOT_EXPR = `(function(){
     props[PROPS[i]] = cs.getPropertyValue(PROPS[i]);
   }
   var cls = el.getAttribute ? (el.getAttribute('class') || '') : '';
+  var textParts = [];
+  for (var i = 0; i < el.childNodes.length; i++) {
+    var n = el.childNodes[i];
+    if (n.nodeType === 3) { var t = n.textContent ? n.textContent.trim() : ''; if (t) textParts.push(t); }
+  }
   return JSON.stringify({
     id: el.__inspectflowId,
     tag: el.tagName ? el.tagName.toLowerCase() : '',
     className: cls,
     file: (el.dataset && el.dataset.sourceFile) ? el.dataset.sourceFile : '',
-    props: props
+    props: props,
+    directText: textParts.join(' ')
   });
 })()`;
 
@@ -172,17 +179,39 @@ async function pollOnce(): Promise<void> {
     }
   }
 
-  lastSnap = snap;
+  // Filter out properties that changed only because they inherit via `currentColor`.
+  // These properties default to currentColor in CSS, so they follow `color` automatically.
+  // Only suppress them when `color` also changed in the same batch to the same value.
+  const CURRENT_COLOR_PROPS = new Set(["border-color", "outline-color", "text-decoration-color"]);
+  const newColorValue = confirmed.find(c => c.property === "color")?.value;
+  const filtered = newColorValue
+    ? confirmed.filter(c => !CURRENT_COLOR_PROPS.has(c.property) || c.value !== newColorValue)
+    : confirmed;
 
-  for (const change of confirmed) {
+  const selector = snap.className ? `${snap.tag}.${snap.className.split(/\s+/)[0]}` : snap.tag;
+
+  for (const change of filtered) {
+    recordChange({ selector, property: change.property, value: change.value, className: snap.className, file: snap.file });
+  }
+
+  // Text content change detection (same 2-poll stability gate as CSS).
+  const currText = snap.directText;
+  const prevText = lastSnap?.directText ?? "";
+  const baseText = baseline.directText;
+  if (currText === prevText && currText !== baseText && currText.trim() && baseText.trim()) {
+    baseline.directText = currText;
     recordChange({
-      selector: snap.className ? `${snap.tag}.${snap.className.split(/\s+/)[0]}` : snap.tag,
-      property: change.property,
-      value: change.value,
+      selector,
+      property: "textContent",
+      value: currText,
       className: snap.className,
       file: snap.file,
+      changeType: "text",
+      previousValue: baseText,
     });
   }
+
+  lastSnap = snap;
 }
 
 interface DetectedChange {
@@ -191,6 +220,8 @@ interface DetectedChange {
   value: string;
   className: string;
   file: string;
+  changeType?: "css" | "text";
+  previousValue?: string;
 }
 
 function recordChange(info: DetectedChange): void {
@@ -200,6 +231,8 @@ function recordChange(info: DetectedChange): void {
     selector: info.selector,
     property: info.property,
     value: info.value,
+    ...(info.changeType ? { changeType: info.changeType } : {}),
+    ...(info.previousValue !== undefined ? { previousValue: info.previousValue } : {}),
     ...(info.file ? { file: info.file } : {}),
     ...(info.className ? { className: info.className } : {}),
   };
@@ -207,7 +240,8 @@ function recordChange(info: DetectedChange): void {
   analysisStates.set(change.id, { state: "idle" });
   applyStates.set(change.id, { state: "idle" });
   renderChanges();
-  sendToServer(change);
+  // Text changes are not tracked in the style-change store (CSS-only endpoint).
+  if (change.changeType !== "text") sendToServer(change);
 }
 
 function sendToServer(change: CapturedChange): void {
@@ -470,8 +504,18 @@ function updateCardSendStatus(changeId: string): void {
   }
 }
 
-/** Renders the two analysis buttons: deterministic "Analyze" + "Analyze with AI". */
+/** Renders analysis buttons. Text changes get a single "Find in Source" button; CSS changes get "Analyze" + "Analyze with AI". */
 function renderAnalyzeButtons(container: HTMLElement, change: CapturedChange): void {
+  if (change.changeType === "text") {
+    const btn = document.createElement("button");
+    btn.className = "secondary";
+    btn.textContent = "Find in Source";
+    btn.title = "Locate this text in your source file and preview the replacement";
+    btn.addEventListener("click", () => void analyzeChange(change, "local"));
+    container.appendChild(btn);
+    return;
+  }
+
   const local = document.createElement("button");
   local.className = "secondary";
   local.textContent = "Analyze";
@@ -521,7 +565,7 @@ function updateCardAnalysis(changeId: string, change: CapturedChange): void {
       const span = document.createElement("span");
       span.className = "muted";
       span.style.fontSize = "11px";
-      span.textContent = state.mode === "ai" ? "Analyzing with Gemini…" : "Analyzing…";
+      span.textContent = state.mode === "ai" ? "Analyzing with Gemini…" : change.changeType === "text" ? "Finding in source…" : "Analyzing…";
       actionsEl.appendChild(span);
       break;
     }

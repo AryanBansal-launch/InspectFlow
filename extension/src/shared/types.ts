@@ -31,6 +31,10 @@ export interface CapturedChange {
   selector: string;
   property: string;
   value: string;
+  /** "css" (default) or "text" for text-node content changes. */
+  changeType?: "css" | "text";
+  /** For text changes: the original text content before the edit. */
+  previousValue?: string;
   /** Relative source-file path from `data-source-file` (if present). */
   file?: string;
   /** Current className string of the inspected element (if present). */

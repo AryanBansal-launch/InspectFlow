@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { analyzeStyleChange } from "../tools/analyzeStyleChange.js";
+import { analyzeTextChange } from "../tools/analyzeTextChange.js";
 import { createLogger } from "../logger/index.js";
 import { safeValidate } from "../validation/schemas.js";
 
@@ -30,6 +31,8 @@ const analyzeRequestSchema = z.object({
   className: z.string().trim().max(4000).optional(),
   selector: z.string().trim().max(1000).optional(),
   mode: z.enum(["local", "ai"]).optional(),
+  changeType: z.enum(["css", "text"]).optional(),
+  previousValue: z.string().trim().max(10000).optional(),
 });
 
 /**
@@ -56,10 +59,21 @@ analyzeRouter.post("/analyze", async (req, res) => {
     return;
   }
 
-  const { file, property, value, className, selector, mode } = result.data;
-  log.info({ file: file ?? "(auto-discover)", property, value, mode: mode ?? "local" }, "analyze request");
+  const { file, property, value, className, selector, mode, changeType, previousValue } = result.data;
+  log.info({ file: file ?? "(auto-discover)", property, value, mode: mode ?? "local", changeType }, "analyze request");
 
   try {
+    // Text content change: find the old string in source and swap it for the new one.
+    if (changeType === "text") {
+      if (!previousValue) {
+        res.status(400).json({ success: false, error: "previousValue is required for text changes" });
+        return;
+      }
+      const analysis = await analyzeTextChange({ file, oldText: previousValue, newText: value, className });
+      res.json({ success: true, file: analysis.file, suggestion: analysis.suggestion, source: analysis.source });
+      return;
+    }
+
     const analysis = await analyzeStyleChange({ file, property, value, className, selector, mode });
     res.json({
       success: true,

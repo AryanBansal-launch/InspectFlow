@@ -74,6 +74,8 @@ async function handleMessage(
           value: message.change.value,
           className: message.change.className,
           mode: message.mode,
+          changeType: message.change.changeType,
+          previousValue: message.change.previousValue,
         });
         return ok(result);
       } catch (e) {
