@@ -1,8 +1,12 @@
 import { test, expect } from "@playwright/test";
 
 // The exact property set the panel watches on the selected element ($0).
+// Padding/margin are tracked as per-side longhands (the panel coalesces a
+// uniform four-side edit back into the shorthand).
 const TRACKED_PROPS = [
-  "padding", "margin", "border-radius", "border-width", "border-color",
+  "padding-top", "padding-right", "padding-bottom", "padding-left",
+  "margin-top", "margin-right", "margin-bottom", "margin-left",
+  "border-radius", "border-width", "border-color",
   "color", "background-color",
   "font-size", "font-weight", "line-height", "letter-spacing", "text-align", "text-transform",
   "width", "height", "min-width", "max-width", "min-height", "max-height",
@@ -52,9 +56,13 @@ test.describe("computed-style detection core", () => {
 
     expect("error" in result ? result.error : undefined).toBeUndefined();
     if ("changed" in result) {
-      const padding = result.changed.find((c) => c.property === "padding");
-      expect(padding, "padding change should be detected").toBeTruthy();
-      expect(padding!.after).toBe("32px");
+      // A uniform `padding: 32px` edit surfaces as all four side longhands.
+      const sides = ["padding-top", "padding-right", "padding-bottom", "padding-left"];
+      for (const side of sides) {
+        const change = result.changed.find((c) => c.property === side);
+        expect(change, `${side} change should be detected`).toBeTruthy();
+        expect(change!.after).toBe("32px");
+      }
     }
   });
 

@@ -2,9 +2,10 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { createLogger } from "../logger/index.js";
 import { readSourceFile } from "../services/fileReader.js";
-import { findFilesByClassName } from "../services/fileSearch.js";
+import { findFilesByClassName, resolveSourceHint } from "../services/fileSearch.js";
 import { analyzeWithGemini } from "../services/geminiService.js";
 import { mapToTailwind } from "../services/tailwindMap.js";
+import { ensureThemeApplied } from "../services/tailwindTheme.js";
 import type { EditSuggestion } from "../validation/schemas.js";
 
 const log = createLogger("analyze");
@@ -20,6 +21,8 @@ export interface AnalyzeStyleChangeInput {
   value: string;
   className?: string;
   selector?: string;
+  /** Absolute source path from the React fiber; resolved to a relative path. */
+  sourceHint?: string;
   /** "local" (default): deterministic Tailwind map only. "ai": use Gemini. */
   mode?: AnalyzeMode;
 }
@@ -56,6 +59,14 @@ export async function analyzeStyleChange(
   const mode: AnalyzeMode = input.mode ?? "local";
   let filePath = input.file?.trim();
 
+  // No explicit file: try the React fiber source hint before grepping by class.
+  // The hint points to the exact JSX location, so it avoids ambiguity when
+  // several elements share a className.
+  if (!filePath && input.sourceHint?.trim()) {
+    const resolved = await resolveSourceHint(input.sourceHint);
+    if (resolved) filePath = resolved;
+  }
+
   if (!filePath) {
     if (!input.className?.trim()) {
       throw new Error(
@@ -81,6 +92,8 @@ export async function analyzeStyleChange(
 
   // Deterministic local mapper — instant, free, no rate limits.
   if (mode === "local") {
+    // Pick up any custom brand colors / spacing from the project's Tailwind theme.
+    await ensureThemeApplied();
     const local = mapToTailwind(input.property, input.value, input.className);
     if (local && fileContent.includes(local.replace)) {
       log.info(

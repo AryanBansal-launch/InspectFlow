@@ -6,9 +6,10 @@
 // cases this cannot resolve.
 
 import type { EditSuggestion } from "../validation/schemas.js";
+import { isExactTailwindColor, nearestTailwindColor } from "./tailwindColors.js";
 
 /** Tailwind default spacing scale: pixel value → scale token (1 unit = 4px). */
-const SPACING: Record<string, string> = {
+const DEFAULT_SPACING: Record<string, string> = {
   "0px": "0", "1px": "px", "2px": "0.5", "4px": "1", "6px": "1.5", "8px": "2",
   "10px": "2.5", "12px": "3", "14px": "3.5", "16px": "4", "20px": "5",
   "24px": "6", "28px": "7", "32px": "8", "36px": "9", "40px": "10",
@@ -17,6 +18,17 @@ const SPACING: Record<string, string> = {
   "176px": "44", "192px": "48", "208px": "52", "224px": "56", "240px": "60",
   "256px": "64", "288px": "72", "320px": "80", "384px": "96",
 };
+
+/**
+ * Active spacing map (px → token). Starts as the default scale; the theme loader
+ * merges any project-specific named spacing over it via {@link setCustomSpacing}.
+ */
+let SPACING: Record<string, string> = { ...DEFAULT_SPACING };
+
+/** Merges project spacing overrides (px → token) over the default scale. */
+export function setCustomSpacing(overrides: Record<string, string>): void {
+  SPACING = { ...DEFAULT_SPACING, ...overrides };
+}
 
 /** font-size pixel value → Tailwind text-* token. */
 const FONT_SIZE: Record<string, string> = {
@@ -62,6 +74,17 @@ const SPACING_PREFIXES: Record<string, string[]> = {
 };
 
 const SIZE_TOKENS = ["xs", "sm", "base", "lg", "xl", "2xl", "3xl", "4xl", "5xl", "6xl", "7xl", "8xl", "9xl"];
+
+/** line-height pixel value → Tailwind numeric leading-* token (1 unit = 4px). */
+const LINE_HEIGHT: Record<string, string> = {
+  "12px": "3", "16px": "4", "20px": "5", "24px": "6", "28px": "7",
+  "32px": "8", "36px": "9", "40px": "10",
+};
+
+/** border-width pixel value → suffix appended to "border". */
+const BORDER_WIDTH: Record<string, string> = {
+  "0px": "-0", "1px": "", "2px": "-2", "4px": "-4", "8px": "-8",
+};
 
 function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -157,9 +180,82 @@ export function mapToTailwind(
     const old = classes.find((c) => re.test(c));
     if (!old) return null;
     const hex = rgbToHex(val);
-    const withClass = arbitrary(colorPrefix, hex);
+    // Prefer a readable named Tailwind class (text-blue-500) when the picked
+    // color IS a palette color; fall back to an arbitrary hex otherwise.
+    const named = nearestTailwindColor(hex);
+    const withClass = isExactTailwindColor(named)
+      ? `${colorPrefix}-${named.name}`
+      : arbitrary(colorPrefix, hex);
     if (withClass === old) return null;
     return { replace: old, with: withClass, reason: `${property}: ${val} → ${withClass} (local map)` };
+  }
+
+  // ---- opacity ----
+  if (prop === "opacity") {
+    const old = classes.find((c) => /^opacity-(\d{1,3}|\[[^\]]+\])$/.test(c));
+    if (!old) return null;
+    const num = Number(val);
+    if (Number.isNaN(num)) return null;
+    const withClass = `opacity-${Math.round(num * 100)}`;
+    if (withClass === old) return null;
+    return { replace: old, with: withClass, reason: `opacity: ${val} → ${withClass} (local map)` };
+  }
+
+  // ---- text-align ----
+  if (prop === "text-align") {
+    const ALIGN = new Set(["left", "center", "right", "justify", "start", "end"]);
+    if (!ALIGN.has(val)) return null;
+    const old = classes.find((c) => /^text-(left|center|right|justify|start|end)$/.test(c));
+    if (!old) return null;
+    const withClass = `text-${val}`;
+    if (withClass === old) return null;
+    return { replace: old, with: withClass, reason: `text-align: ${val} → ${withClass} (local map)` };
+  }
+
+  // ---- text-transform ----
+  if (prop === "text-transform") {
+    const TRANSFORM: Record<string, string> = {
+      uppercase: "uppercase", lowercase: "lowercase", capitalize: "capitalize", none: "normal-case",
+    };
+    const withClass = TRANSFORM[val];
+    if (!withClass) return null;
+    const old = classes.find((c) => /^(uppercase|lowercase|capitalize|normal-case)$/.test(c));
+    if (!old) return null;
+    if (withClass === old) return null;
+    return { replace: old, with: withClass, reason: `text-transform: ${val} → ${withClass} (local map)` };
+  }
+
+  // ---- line-height (leading) ----
+  if (prop === "line-height") {
+    const old = classes.find(
+      (c) => /^leading-(none|tight|snug|normal|relaxed|loose|\d{1,2}|\[[^\]]+\])$/.test(c),
+    );
+    if (!old) return null;
+    const token = LINE_HEIGHT[val];
+    const withClass = token !== undefined ? `leading-${token}` : arbitrary("leading", val);
+    if (withClass === old) return null;
+    return { replace: old, with: withClass, reason: `line-height: ${val} → ${withClass} (local map)` };
+  }
+
+  // ---- letter-spacing (tracking) ----
+  if (prop === "letter-spacing") {
+    const old = classes.find(
+      (c) => /^tracking-(tighter|tight|normal|wide|wider|widest|\[[^\]]+\])$/.test(c),
+    );
+    if (!old) return null;
+    const withClass = val === "normal" || val === "0px" ? "tracking-normal" : arbitrary("tracking", val);
+    if (withClass === old) return null;
+    return { replace: old, with: withClass, reason: `letter-spacing: ${val} → ${withClass} (local map)` };
+  }
+
+  // ---- border-width ----
+  if (prop === "border-width") {
+    const old = classes.find((c) => /^border(-(0|2|4|8))?$/.test(c) || /^border-\[[^\]]+\]$/.test(c));
+    if (!old) return null;
+    const token = BORDER_WIDTH[val];
+    const withClass = token !== undefined ? `border${token}` : arbitrary("border", val);
+    if (withClass === old) return null;
+    return { replace: old, with: withClass, reason: `border-width: ${val} → ${withClass} (local map)` };
   }
 
   return null;

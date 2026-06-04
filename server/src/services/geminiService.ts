@@ -68,12 +68,44 @@ Padding/margin classes use the same scale:
   Colors: bg-{color}-{shade}, text-{color}-{shade}, border-{color}-{shade} (shades: 50-950)
 `.trim();
 
+/**
+ * Returns a <= CONTENT_CHAR_LIMIT slice of the file, centered on the edited
+ * element so it isn't truncated out of the prompt. Anchors on the className
+ * (or its first token / selector); falls back to the file head when no anchor
+ * is found. Truncated edges are marked so the model knows content was elided.
+ */
+function windowAroundAnchor(content: string, input: AnalysisInput): string {
+  if (content.length <= CONTENT_CHAR_LIMIT) return content;
+
+  const anchors = [
+    input.className?.trim(),
+    input.className?.trim()?.split(/\s+/)[0],
+    input.selector?.trim(),
+  ].filter((a): a is string => typeof a === "string" && a.length > 1);
+
+  let idx = -1;
+  for (const a of anchors) {
+    idx = content.indexOf(a);
+    if (idx !== -1) break;
+  }
+
+  // No anchor found → keep the existing head-of-file behavior.
+  if (idx === -1) {
+    return content.slice(0, CONTENT_CHAR_LIMIT) + "\n... [truncated — file continues]";
+  }
+
+  const half = Math.floor(CONTENT_CHAR_LIMIT / 2);
+  let start = Math.max(0, idx - half);
+  let end = Math.min(content.length, start + CONTENT_CHAR_LIMIT);
+  start = Math.max(0, end - CONTENT_CHAR_LIMIT); // re-expand if we hit the tail
+
+  const head = start > 0 ? "... [truncated — file begins above]\n" : "";
+  const tail = end < content.length ? "\n... [truncated — file continues]" : "";
+  return head + content.slice(start, end) + tail;
+}
+
 function buildPrompt(input: AnalysisInput): string {
-  const content =
-    input.fileContent.length > CONTENT_CHAR_LIMIT
-      ? input.fileContent.slice(0, CONTENT_CHAR_LIMIT) +
-        "\n... [truncated — file continues]"
-      : input.fileContent;
+  const content = windowAroundAnchor(input.fileContent, input);
 
   return `You are an expert in React, TypeScript, Tailwind CSS, and plain CSS.
 

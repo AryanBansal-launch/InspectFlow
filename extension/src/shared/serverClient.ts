@@ -47,6 +47,8 @@ export async function checkHealth(serverUrl: string): Promise<ServerHealth> {
 /** Payload for `POST /style-change` — mirrors the server's `StyleChange` schema. */
 export interface StyleChangePayload {
   file?: string;
+  /** Absolute source path from the React fiber; server resolves to a relative path. */
+  sourceHint?: string;
   selector?: string;
   property: string;
   value: string;

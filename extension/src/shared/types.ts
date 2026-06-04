@@ -37,6 +37,8 @@ export interface CapturedChange {
   previousValue?: string;
   /** Relative source-file path from `data-source-file` (if present). */
   file?: string;
+  /** Absolute source path from React fiber `_debugSource` (dev builds only). */
+  sourceHint?: string;
   /** Current className string of the inspected element (if present). */
   className?: string;
 }

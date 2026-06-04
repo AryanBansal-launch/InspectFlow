@@ -88,15 +88,15 @@ export async function applyEdit(
 // CSS / plain-text replacement
 // ---------------------------------------------------------------------------
 
-function applySimpleReplace(
+async function applySimpleReplace(
   abs: string,
   content: string,
   replace: string,
   withStr: string,
-): WriteResult {
+): Promise<WriteResult> {
   const lineNumber = lineOf(content, replace);
   const newContent = content.replace(replace, withStr);
-  void writeFile(abs, newContent, "utf-8");
+  await writeFile(abs, newContent, "utf-8");
   log.info({ file: path.basename(abs), lineNumber, replace, with: withStr }, "applied CSS edit");
   return { linesChanged: 1, lineNumber, absolutePath: abs };
 }
@@ -105,12 +105,12 @@ function applySimpleReplace(
 // TypeScript / JSX AST-based replacement
 // ---------------------------------------------------------------------------
 
-function applyAstReplace(
+async function applyAstReplace(
   abs: string,
   content: string,
   replace: string,
   withStr: string,
-): WriteResult {
+): Promise<WriteResult> {
   let ast: recast.types.ASTNode;
   try {
     ast = recast.parse(content, recastParserOptions);
@@ -188,7 +188,7 @@ function applyAstReplace(
   }
 
   const printed = recast.print(ast, { useTabs: content.includes("\t") });
-  void writeFile(abs, printed.code, "utf-8");
+  await writeFile(abs, printed.code, "utf-8");
   log.info(
     { file: path.basename(abs), lineNumber, replace, with: withStr },
     "applied AST edit",

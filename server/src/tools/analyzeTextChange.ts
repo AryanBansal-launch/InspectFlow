@@ -1,5 +1,5 @@
 import { createLogger } from "../logger/index.js";
-import { findFilesByClassName } from "../services/fileSearch.js";
+import { findFilesByClassName, resolveSourceHint } from "../services/fileSearch.js";
 import { findTextInSource } from "../services/textSearch.js";
 
 const log = createLogger("analyze-text");
@@ -9,6 +9,8 @@ export interface AnalyzeTextChangeInput {
   oldText: string;
   newText: string;
   className?: string;
+  /** Absolute source path from the React fiber; resolved to a relative path. */
+  sourceHint?: string;
 }
 
 export interface AnalyzeTextChangeResult {
@@ -25,6 +27,11 @@ export async function analyzeTextChange(
   input: AnalyzeTextChangeInput,
 ): Promise<AnalyzeTextChangeResult> {
   let filePath = input.file?.trim();
+
+  if (!filePath && input.sourceHint?.trim()) {
+    const resolved = await resolveSourceHint(input.sourceHint);
+    if (resolved) filePath = resolved;
+  }
 
   if (!filePath) {
     if (!input.className?.trim()) {

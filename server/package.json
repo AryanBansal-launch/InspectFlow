@@ -1,6 +1,6 @@
 {
   "name": "inspectflow-server",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "InspectFlow MCP server — sync Chrome DevTools CSS changes back to React/Next.js source code with AI-assisted, approval-gated edits.",
   "type": "module",
   "engines": {

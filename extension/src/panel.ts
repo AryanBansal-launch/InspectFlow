@@ -81,7 +81,12 @@ const applyStates = new Map<string, ApplyState>();
 
 /** Properties we watch on the selected element. Shorthands where Chrome resolves them. */
 const TRACKED_PROPS = [
-  "padding", "margin", "border-radius", "border-width", "border-color",
+  // Per-side longhands (not the `padding`/`margin` shorthands): editing one
+  // side in DevTools resolves cleanly to pl-*/pt-* etc. A uniform change to all
+  // four sides is coalesced back into `padding`/`margin` in pollOnce().
+  "padding-top", "padding-right", "padding-bottom", "padding-left",
+  "margin-top", "margin-right", "margin-bottom", "margin-left",
+  "border-radius", "border-width", "border-color",
   "color", "background-color",
   "font-size", "font-weight", "line-height", "letter-spacing", "text-align", "text-transform",
   "width", "height", "min-width", "max-width", "min-height", "max-height",
@@ -96,6 +101,10 @@ interface ElementSnapshot {
   tag: string;
   className: string;
   file: string;
+  /** Absolute source path from React fiber `_debugSource` (dev builds only). */
+  sourceHint: string;
+  /** 1-based source line from the fiber (0 if unknown). */
+  sourceLine: number;
   props: Record<string, string>;
   directText: string;
 }
@@ -114,6 +123,27 @@ const SNAPSHOT_EXPR = `(function(){
     props[PROPS[i]] = cs.getPropertyValue(PROPS[i]);
   }
   var cls = el.getAttribute ? (el.getAttribute('class') || '') : '';
+
+  // React dev builds annotate JSX with its source location (Babel
+  // jsx-source / fiber._debugSource). Reading it off $0 gives the exact file
+  // and line, removing the className-grep guesswork on the server.
+  var srcFile = '';
+  var srcLine = 0;
+  try {
+    var fk = Object.keys(el).filter(function(k){ return k.indexOf('__reactFiber$') === 0 || k.indexOf('__reactInternalInstance$') === 0; })[0];
+    if (fk) {
+      var fiber = el[fk];
+      var hops = 0;
+      while (fiber && hops < 30) {
+        var ds = fiber._debugSource ||
+                 (fiber.memoizedProps && fiber.memoizedProps.__source) ||
+                 (fiber.pendingProps && fiber.pendingProps.__source);
+        if (ds && ds.fileName) { srcFile = String(ds.fileName); srcLine = ds.lineNumber || 0; break; }
+        fiber = fiber._debugOwner || null;
+        hops++;
+      }
+    }
+  } catch (e) { /* no React / production build — fall back to className search */ }
   var textParts = [];
   for (var i = 0; i < el.childNodes.length; i++) {
     var n = el.childNodes[i];
@@ -124,6 +154,8 @@ const SNAPSHOT_EXPR = `(function(){
     tag: el.tagName ? el.tagName.toLowerCase() : '',
     className: cls,
     file: (el.dataset && el.dataset.sourceFile) ? el.dataset.sourceFile : '',
+    sourceHint: srcFile,
+    sourceLine: srcLine,
     props: props,
     directText: textParts.join(' ')
   });
@@ -190,8 +222,8 @@ async function pollOnce(): Promise<void> {
 
   const selector = snap.className ? `${snap.tag}.${snap.className.split(/\s+/)[0]}` : snap.tag;
 
-  for (const change of filtered) {
-    recordChange({ selector, property: change.property, value: change.value, className: snap.className, file: snap.file });
+  for (const change of coalesceBox(filtered)) {
+    recordChange({ selector, property: change.property, value: change.value, className: snap.className, file: snap.file, sourceHint: snap.sourceHint });
   }
 
   // Text content change detection (same 2-poll stability gate as CSS).
@@ -206,6 +238,7 @@ async function pollOnce(): Promise<void> {
       value: currText,
       className: snap.className,
       file: snap.file,
+      sourceHint: snap.sourceHint,
       changeType: "text",
       previousValue: baseText,
     });
@@ -214,12 +247,41 @@ async function pollOnce(): Promise<void> {
   lastSnap = snap;
 }
 
+/**
+ * Collapses a uniform four-side padding/margin edit back into the shorthand.
+ * If all four `padding-*` longhands changed to the same value in one batch they
+ * become a single `padding` change (→ `p-8`); otherwise the individual sides
+ * pass through unchanged (→ `pl-5`). Same logic for margin.
+ */
+function coalesceBox(changes: { property: string; value: string }[]): { property: string; value: string }[] {
+  const out: { property: string; value: string }[] = [];
+  for (const box of ["padding", "margin"] as const) {
+    const sides = ["top", "right", "bottom", "left"].map((s) => `${box}-${s}`);
+    const present = sides.map((side) => changes.find((c) => c.property === side)).filter(Boolean) as {
+      property: string;
+      value: string;
+    }[];
+    if (present.length === 4 && present.every((c) => c.value === present[0]!.value)) {
+      out.push({ property: box, value: present[0]!.value });
+    } else {
+      out.push(...present);
+    }
+  }
+  // Pass through everything that isn't a padding/margin longhand.
+  const boxSides = new Set(
+    ["padding", "margin"].flatMap((b) => ["top", "right", "bottom", "left"].map((s) => `${b}-${s}`)),
+  );
+  out.push(...changes.filter((c) => !boxSides.has(c.property)));
+  return out;
+}
+
 interface DetectedChange {
   selector: string;
   property: string;
   value: string;
   className: string;
   file: string;
+  sourceHint?: string;
   changeType?: "css" | "text";
   previousValue?: string;
 }
@@ -234,6 +296,7 @@ function recordChange(info: DetectedChange): void {
     ...(info.changeType ? { changeType: info.changeType } : {}),
     ...(info.previousValue !== undefined ? { previousValue: info.previousValue } : {}),
     ...(info.file ? { file: info.file } : {}),
+    ...(info.sourceHint ? { sourceHint: info.sourceHint } : {}),
     ...(info.className ? { className: info.className } : {}),
   };
   changes.unshift(change);

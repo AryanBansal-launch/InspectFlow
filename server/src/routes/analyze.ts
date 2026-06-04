@@ -30,6 +30,14 @@ const analyzeRequestSchema = z.object({
   value: z.string().trim().min(1, "value is required").max(2000),
   className: z.string().trim().max(4000).optional(),
   selector: z.string().trim().max(1000).optional(),
+  // Absolute source path captured from the React fiber. Unlike `file` it is not
+  // required to be relative — the server resolves it safely against PROJECT_ROOT.
+  sourceHint: z
+    .string()
+    .trim()
+    .max(4000)
+    .optional()
+    .refine((v) => !v || !v.includes("\0"), "sourceHint must not contain null bytes"),
   mode: z.enum(["local", "ai"]).optional(),
   changeType: z.enum(["css", "text"]).optional(),
   previousValue: z.string().trim().max(10000).optional(),
@@ -59,7 +67,7 @@ analyzeRouter.post("/analyze", async (req, res) => {
     return;
   }
 
-  const { file, property, value, className, selector, mode, changeType, previousValue } = result.data;
+  const { file, property, value, className, selector, sourceHint, mode, changeType, previousValue } = result.data;
   log.info({ file: file ?? "(auto-discover)", property, value, mode: mode ?? "local", changeType }, "analyze request");
 
   try {
@@ -69,12 +77,12 @@ analyzeRouter.post("/analyze", async (req, res) => {
         res.status(400).json({ success: false, error: "previousValue is required for text changes" });
         return;
       }
-      const analysis = await analyzeTextChange({ file, oldText: previousValue, newText: value, className });
+      const analysis = await analyzeTextChange({ file, oldText: previousValue, newText: value, className, sourceHint });
       res.json({ success: true, file: analysis.file, suggestion: analysis.suggestion, source: analysis.source });
       return;
     }
 
-    const analysis = await analyzeStyleChange({ file, property, value, className, selector, mode });
+    const analysis = await analyzeStyleChange({ file, property, value, className, selector, sourceHint, mode });
     res.json({
       success: true,
       file: analysis.file,

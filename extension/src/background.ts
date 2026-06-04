@@ -69,6 +69,7 @@ async function handleMessage(
       try {
         const result = await analyzeChange(settings.serverUrl, {
           file: message.change.file,
+          sourceHint: message.change.sourceHint,
           selector: message.change.selector,
           property: message.change.property,
           value: message.change.value,
