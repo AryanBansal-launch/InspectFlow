@@ -1,0 +1,13 @@
+{
+  "name": "inspectflow",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Edit styles in Chrome DevTools → map to Tailwind → review a diff → write the source file. MCP server + Chrome extension.",
+  "scripts": {
+    "release": "./release.sh",
+    "release:patch": "./release.sh patch",
+    "release:minor": "./release.sh minor",
+    "release:major": "./release.sh major",
+    "release:dry": "./release.sh patch --dry-run"
+  }
+}
