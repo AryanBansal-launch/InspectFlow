@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "InspectFlow",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "description": "Sync Chrome DevTools CSS changes back to your React/Next.js source with approval-gated AI edits.",
   "minimum_chrome_version": "116",
   "permissions": [

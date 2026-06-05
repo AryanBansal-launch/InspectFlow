@@ -69,6 +69,8 @@ type ApplyState =
   | { state: "idle" }
   | { state: "applying" }
   | { state: "applied"; lineNumber: number }
+  | { state: "undoing" }
+  | { state: "reverted" }
   | { state: "failed"; error: string };
 
 const sendStatuses = new Map<string, SendStatus>();
@@ -223,7 +225,7 @@ async function pollOnce(): Promise<void> {
   const selector = snap.className ? `${snap.tag}.${snap.className.split(/\s+/)[0]}` : snap.tag;
 
   for (const change of coalesceBox(filtered)) {
-    recordChange({ selector, property: change.property, value: change.value, className: snap.className, file: snap.file, sourceHint: snap.sourceHint });
+    recordChange({ selector, property: change.property, value: change.value, className: snap.className, file: snap.file, sourceHint: snap.sourceHint, elementId: snap.id });
   }
 
   // Text content change detection (same 2-poll stability gate as CSS).
@@ -239,6 +241,7 @@ async function pollOnce(): Promise<void> {
       className: snap.className,
       file: snap.file,
       sourceHint: snap.sourceHint,
+      elementId: snap.id,
       changeType: "text",
       previousValue: baseText,
     });
@@ -282,6 +285,7 @@ interface DetectedChange {
   className: string;
   file: string;
   sourceHint?: string;
+  elementId?: string;
   changeType?: "css" | "text";
   previousValue?: string;
 }
@@ -298,6 +302,7 @@ function recordChange(info: DetectedChange): void {
     ...(info.file ? { file: info.file } : {}),
     ...(info.sourceHint ? { sourceHint: info.sourceHint } : {}),
     ...(info.className ? { className: info.className } : {}),
+    ...(info.elementId ? { elementId: info.elementId } : {}),
   };
   changes.unshift(change);
   analysisStates.set(change.id, { state: "idle" });
@@ -402,6 +407,35 @@ async function applyChange(changeId: string): Promise<void> {
   updateCardApply(changeId);
 }
 
+/**
+ * Reverts an applied edit by running the replacement backwards (`with` → `replace`)
+ * through the same /apply endpoint. This respects any edits the user made
+ * elsewhere in the file (unlike a whole-file snapshot restore) and reuses the
+ * existing find-and-replace machinery, so no server change is needed.
+ */
+async function undoChange(changeId: string): Promise<void> {
+  const analysis = analysisStates.get(changeId);
+  if (!analysis || analysis.state !== "done" || !analysis.file) return;
+
+  applyStates.set(changeId, { state: "undoing" });
+  updateCardApply(changeId);
+
+  const res = await safeSend({
+    type: "APPLY_CHANGE",
+    file: analysis.file,
+    replace: analysis.suggestion.with, // reverse direction
+    with: analysis.suggestion.replace,
+  });
+
+  if (!res.ok || !res.data.success) {
+    const err = res.ok ? (res.data.error ?? "Undo failed") : res.error;
+    applyStates.set(changeId, { state: "failed", error: err });
+  } else {
+    applyStates.set(changeId, { state: "reverted" });
+  }
+  updateCardApply(changeId);
+}
+
 // ---------------------------------------------------------------------------
 // Capture controls
 // ---------------------------------------------------------------------------
@@ -420,6 +454,21 @@ clearBtnEl.addEventListener("click", () => {
   renderChanges();
   hideCaptureError();
 });
+
+/** Removes a single change card and its associated state. */
+function dismissChange(changeId: string): void {
+  const idx = changes.findIndex((c) => c.id === changeId);
+  if (idx !== -1) {
+    // Clear any lingering hover outline before the card (and its mouseleave) vanish.
+    const elId = changes[idx]!.elementId;
+    if (elId) unhighlightElement(elId);
+    changes.splice(idx, 1);
+  }
+  sendStatuses.delete(changeId);
+  analysisStates.delete(changeId);
+  applyStates.delete(changeId);
+  renderChanges();
+}
 
 function startCapture(): void {
   captureActive = true;
@@ -456,26 +505,73 @@ function setCaptureActive(active: boolean): void {
 // Server status
 // ---------------------------------------------------------------------------
 
+let serverReachable = false;
+let statusCheckInFlight = false;
+let statusPollTimer: ReturnType<typeof setInterval> | null = null;
+
 async function refreshServerStatus(): Promise<void> {
-  serverDotEl.className = "dot";
-  serverTextEl.textContent = "…";
+  // Guard against overlapping checks (the poll timer + a manual click can race).
+  if (statusCheckInFlight) return;
+  statusCheckInFlight = true;
+  const wasReachable = serverReachable;
+  const wasGemini = geminiConfigured;
+  if (!serverReachable) {
+    serverDotEl.className = "dot";
+    serverTextEl.textContent = "…";
+  }
   try {
     const res = await safeSend({ type: "CHECK_SERVER" });
     if (!res.ok || !res.data.reachable) {
+      serverReachable = false;
       serverDotEl.className = "dot err";
-      serverTextEl.textContent = "Server unreachable";
-      return;
+      serverTextEl.textContent = "Server unreachable — click to retry";
+    } else {
+      serverReachable = true;
+      const h = res.data.health!;
+      geminiConfigured = h.geminiConfigured ?? false;
+      serverDotEl.className = geminiConfigured ? "dot ok" : "dot warn";
+      serverTextEl.textContent = geminiConfigured ? "Gemini ready" : "No Gemini key";
     }
-    const h = res.data.health!;
-    geminiConfigured = h.geminiConfigured ?? false;
-    serverDotEl.className = geminiConfigured ? "dot ok" : "dot warn";
-    serverTextEl.textContent = geminiConfigured ? "Gemini ready" : "No Gemini key";
-    renderChanges();
   } catch {
+    serverReachable = false;
     serverDotEl.className = "dot err";
-    serverTextEl.textContent = "Server unreachable";
+    serverTextEl.textContent = "Server unreachable — click to retry";
+  } finally {
+    statusCheckInFlight = false;
+  }
+
+  // Only re-render the change list when connectivity or Gemini availability
+  // actually flips — re-rendering on every poll tick would wipe card state.
+  if (serverReachable !== wasReachable || geminiConfigured !== wasGemini) {
+    renderChanges();
   }
 }
+
+/**
+ * The server is commonly started AFTER DevTools is already open (the README
+ * tells users to load the extension first), so a one-shot check on init would
+ * strand the panel on "unreachable" forever. Re-check on a timer, when the
+ * window regains focus, and on demand when the user clicks the status pill.
+ */
+function startStatusPolling(): void {
+  if (statusPollTimer) return;
+  statusPollTimer = setInterval(() => void refreshServerStatus(), 4000);
+}
+
+// Clicking the status pill forces an immediate reconnect attempt.
+const statusPillEl = serverDotEl.parentElement;
+if (statusPillEl) {
+  statusPillEl.style.cursor = "pointer";
+  statusPillEl.title = "Click to re-check the server connection";
+  statusPillEl.addEventListener("click", () => void refreshServerStatus());
+}
+
+// Coming back to the panel (e.g. after starting the server in a terminal) should
+// re-check immediately rather than waiting for the next poll tick.
+window.addEventListener("focus", () => void refreshServerStatus());
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") void refreshServerStatus();
+});
 
 function showInspectedTarget(): void {
   chrome.devtools.inspectedWindow.eval("location.href", (result: unknown, ex) => {
@@ -485,11 +581,68 @@ function showInspectedTarget(): void {
 }
 
 // ---------------------------------------------------------------------------
+// Element highlight (hover a card → outline & scroll its element into view)
+// ---------------------------------------------------------------------------
+
+/** Outlines the element matching `__inspectflowId` and scrolls it into view. */
+function highlightElement(elementId: string): void {
+  const expr = `(function(){
+    var els = document.querySelectorAll('*');
+    for (var i = 0; i < els.length; i++) {
+      if (els[i].__inspectflowId === ${JSON.stringify(elementId)}) {
+        var el = els[i];
+        el.dataset.inspectflowPrevOutline = el.style.outline || '';
+        el.dataset.inspectflowPrevOffset = el.style.outlineOffset || '';
+        el.style.outline = '2px solid #6366f1';
+        el.style.outlineOffset = '1px';
+        el.scrollIntoView({ block: 'center', inline: 'nearest' });
+        return true;
+      }
+    }
+    return false;
+  })()`;
+  chrome.devtools.inspectedWindow.eval(expr, () => {});
+}
+
+/** Restores the element's original outline. */
+function unhighlightElement(elementId: string): void {
+  const expr = `(function(){
+    var els = document.querySelectorAll('*');
+    for (var i = 0; i < els.length; i++) {
+      if (els[i].__inspectflowId === ${JSON.stringify(elementId)}) {
+        var el = els[i];
+        el.style.outline = el.dataset.inspectflowPrevOutline || '';
+        el.style.outlineOffset = el.dataset.inspectflowPrevOffset || '';
+        delete el.dataset.inspectflowPrevOutline;
+        delete el.dataset.inspectflowPrevOffset;
+        return true;
+      }
+    }
+    return false;
+  })()`;
+  chrome.devtools.inspectedWindow.eval(expr, () => {});
+}
+
+// ---------------------------------------------------------------------------
 // Render
 // ---------------------------------------------------------------------------
 
 function renderChanges(): void {
   changeListEl.innerHTML = "";
+
+  // Surface actionable recovery steps when the server can't be reached, instead
+  // of leaving the user with just a red dot and no idea what to do.
+  if (!serverReachable) {
+    const banner = document.createElement("div");
+    banner.className = "unreachable-banner";
+    banner.innerHTML =
+      "<strong>Can't reach the InspectFlow server.</strong><br>" +
+      "• Start it in your project folder: <code>npx inspectflow-server@latest</code><br>" +
+      "• Check the URL in the toolbar popup (default <code>http://127.0.0.1:4399</code>)<br>" +
+      "• Then click the status indicator above to retry.";
+    changeListEl.appendChild(banner);
+  }
+
   if (changes.length === 0) {
     const msg = document.createElement("div");
     msg.className = "empty";
@@ -507,6 +660,14 @@ function buildChangeCard(change: CapturedChange): HTMLElement {
   card.className = "change-card";
   card.dataset["changeId"] = change.id;
 
+  // Hover a card to outline its element in the page and scroll it into view —
+  // orients the user when several change cards are stacked up.
+  if (change.elementId) {
+    const elId = change.elementId;
+    card.addEventListener("mouseenter", () => highlightElement(elId));
+    card.addEventListener("mouseleave", () => unhighlightElement(elId));
+  }
+
   const header = document.createElement("div");
   header.className = "change-header";
   const prop = document.createElement("span");
@@ -515,7 +676,18 @@ function buildChangeCard(change: CapturedChange): HTMLElement {
   const val = document.createElement("span");
   val.className = "change-value";
   val.textContent = change.value;
-  header.append(prop, val);
+
+  // Per-card dismiss (✕) — removes a single resolved card without clearing all.
+  const dismissBtn = document.createElement("button");
+  dismissBtn.className = "card-dismiss";
+  dismissBtn.textContent = "✕";
+  dismissBtn.title = "Dismiss this change";
+  dismissBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    dismissChange(change.id);
+  });
+
+  header.append(prop, val, dismissBtn);
 
   const selector = document.createElement("div");
   selector.className = "change-selector";
@@ -568,7 +740,11 @@ function updateCardSendStatus(changeId: string): void {
 }
 
 /** Renders analysis buttons. Text changes get a single "Find in Source" button; CSS changes get "Analyze" + "Analyze with AI". */
-function renderAnalyzeButtons(container: HTMLElement, change: CapturedChange): void {
+function renderAnalyzeButtons(
+  container: HTMLElement,
+  change: CapturedChange,
+  highlightAi = false,
+): void {
   if (change.changeType === "text") {
     const btn = document.createElement("button");
     btn.className = "secondary";
@@ -605,6 +781,11 @@ function renderAnalyzeButtons(container: HTMLElement, change: CapturedChange): v
   } else {
     ai.title = "Use Gemini for smarter analysis (slower, uses API quota)";
     ai.addEventListener("click", () => void analyzeChange(change, "ai"));
+    if (highlightAi) {
+      // The local mapper just failed but AI can handle it — make the fallback
+      // button the obvious next step instead of leaving it visually identical.
+      ai.className = ""; // primary (accent) styling instead of "secondary"
+    }
     container.append(local, ai);
   }
 }
@@ -640,8 +821,23 @@ function updateCardAnalysis(changeId: string, change: CapturedChange): void {
       span.style.marginBottom = "6px";
       span.textContent = `✗ ${state.error}`;
       diffEl.appendChild(span);
+
+      // When the local mapper couldn't handle this property (canUseAi), actively
+      // point the user at the AI fallback instead of leaving them to guess.
+      if (state.canUseAi) {
+        const hint = document.createElement("span");
+        hint.style.fontSize = "11px";
+        hint.style.color = "var(--text-muted)";
+        hint.style.display = "block";
+        hint.style.marginBottom = "6px";
+        hint.textContent = geminiConfigured
+          ? "The local mapper can't handle this property — try Analyze with AI."
+          : "The local mapper can't handle this property. Add a Gemini key (hover the disabled button) to enable AI analysis.";
+        diffEl.appendChild(hint);
+      }
+
       // Always re-offer both buttons so the user can fall back to AI (or retry).
-      renderAnalyzeButtons(actionsEl, change);
+      renderAnalyzeButtons(actionsEl, change, state.canUseAi);
       break;
     }
     case "done": {
@@ -698,6 +894,12 @@ function buildApplyActions(
   applyBtn.dataset["applyBtn"] = changeId;
   applyBtn.addEventListener("click", () => void applyChange(changeId));
 
+  const editBtn = document.createElement("button");
+  editBtn.className = "secondary";
+  editBtn.textContent = "Edit";
+  editBtn.title = "Tweak the suggested replacement before applying";
+  editBtn.addEventListener("click", () => beginEditSuggestion(changeId, change));
+
   const rejectBtn = document.createElement("button");
   rejectBtn.className = "secondary";
   rejectBtn.textContent = "Reject";
@@ -707,7 +909,103 @@ function buildApplyActions(
     updateCardAnalysis(changeId, change);
   });
 
-  container.append(applyBtn, rejectBtn);
+  container.append(applyBtn, editBtn, rejectBtn);
+}
+
+/**
+ * Replaces the diff preview with an inline editor for the suggested replacement,
+ * so the user can correct the mapping (e.g. `gap-2.5` → `gap-3`) before applying.
+ * On save, the new value is re-previewed through the server to refresh the diff
+ * and line number, then the card returns to its normal "done" state.
+ */
+function beginEditSuggestion(changeId: string, change: CapturedChange): void {
+  const state = analysisStates.get(changeId);
+  if (!state || state.state !== "done") return;
+
+  const diffEl = changeListEl.querySelector<HTMLElement>(`[data-diff-for="${changeId}"]`);
+  const actionsEl = changeListEl.querySelector<HTMLElement>(`[data-actions-for="${changeId}"]`);
+  if (!diffEl || !actionsEl) return;
+
+  actionsEl.innerHTML = "";
+  diffEl.innerHTML = "";
+
+  const label = document.createElement("div");
+  label.className = "diff-label";
+  label.textContent = `Replacing: ${state.suggestion.replace}`;
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "edit-input";
+  input.value = state.suggestion.with;
+  input.spellcheck = false;
+  input.setAttribute("aria-label", "Replacement value");
+
+  const saveBtn = document.createElement("button");
+  saveBtn.textContent = "Preview";
+
+  const cancelBtn = document.createElement("button");
+  cancelBtn.className = "secondary";
+  cancelBtn.textContent = "Cancel";
+
+  const commit = (): void => {
+    const next = input.value.trim();
+    if (!next || next === state.suggestion.with) {
+      // Nothing changed — just restore the existing preview.
+      updateCardAnalysis(changeId, change);
+      return;
+    }
+    void repreviewWithEdit(changeId, change, next);
+  };
+
+  saveBtn.addEventListener("click", commit);
+  cancelBtn.addEventListener("click", () => updateCardAnalysis(changeId, change));
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") commit();
+    else if (e.key === "Escape") updateCardAnalysis(changeId, change);
+  });
+
+  const row = document.createElement("div");
+  row.className = "edit-row";
+  row.append(input, saveBtn, cancelBtn);
+
+  diffEl.append(label, row);
+  input.focus();
+  input.select();
+}
+
+/** Re-runs the preview for an edited replacement value and updates the card. */
+async function repreviewWithEdit(
+  changeId: string,
+  change: CapturedChange,
+  newWith: string,
+): Promise<void> {
+  const state = analysisStates.get(changeId);
+  if (!state || state.state !== "done") return;
+
+  const suggestion = { ...state.suggestion, with: newWith };
+  let contextDiff = `- ${suggestion.replace}\n+ ${suggestion.with}`;
+  let lineNumber = -1;
+
+  if (state.file) {
+    const previewRes = await safeSend({
+      type: "PREVIEW_CHANGE",
+      file: state.file,
+      replace: suggestion.replace,
+      with: suggestion.with,
+    });
+    if (previewRes.ok && previewRes.data.success) {
+      contextDiff = previewRes.data.contextDiff || previewRes.data.diff || contextDiff;
+      lineNumber = previewRes.data.lineNumber ?? -1;
+    }
+  }
+
+  analysisStates.set(changeId, {
+    ...state,
+    suggestion,
+    contextDiff,
+    lineNumber,
+  });
+  updateCardAnalysis(changeId, change);
 }
 
 function updateCardApply(changeId: string): void {
@@ -717,6 +1015,14 @@ function updateCardApply(changeId: string): void {
 
   applyAreaEl.innerHTML = "";
   const state = applyStates.get(changeId);
+
+  // Collapse the (verbose) diff and dim the card once a change is resolved, so
+  // attention stays on the changes still waiting to be applied.
+  const card = changeListEl.querySelector<HTMLElement>(`[data-change-id="${changeId}"]`);
+  const diffEl = changeListEl.querySelector<HTMLElement>(`[data-diff-for="${changeId}"]`);
+  const applied = state?.state === "applied";
+  if (card) card.classList.toggle("resolved", applied);
+  if (diffEl) diffEl.style.display = applied ? "none" : "";
 
   if (state?.state === "applying") {
     if (applyBtn) applyBtn.disabled = true;
@@ -730,6 +1036,26 @@ function updateCardApply(changeId: string): void {
     const span = document.createElement("span");
     span.className = "apply-success";
     span.textContent = `✓ Applied${state.lineNumber > 0 ? ` (line ${state.lineNumber})` : ""}. Hot reload will reflect the change.`;
+    const undoBtn = document.createElement("button");
+    undoBtn.className = "secondary";
+    undoBtn.textContent = "Undo";
+    undoBtn.title = "Revert this edit in the source file";
+    undoBtn.style.marginLeft = "8px";
+    undoBtn.addEventListener("click", () => void undoChange(changeId));
+    applyAreaEl.append(span, undoBtn);
+  } else if (state?.state === "undoing") {
+    if (applyBtn) applyBtn.disabled = true;
+    const span = document.createElement("span");
+    span.className = "muted";
+    span.style.fontSize = "11px";
+    span.textContent = "Reverting…";
+    applyAreaEl.appendChild(span);
+  } else if (state?.state === "reverted") {
+    if (applyBtn) applyBtn.disabled = false;
+    const span = document.createElement("span");
+    span.className = "muted";
+    span.style.fontSize = "11px";
+    span.textContent = "↩ Reverted. You can Apply again if you change your mind.";
     applyAreaEl.appendChild(span);
   } else if (state?.state === "failed") {
     if (applyBtn) applyBtn.disabled = false;
@@ -770,4 +1096,5 @@ function showReloadBanner(): void {
 // ---------------------------------------------------------------------------
 
 void refreshServerStatus();
+startStatusPolling();
 renderChanges();

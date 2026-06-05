@@ -41,6 +41,8 @@ export interface CapturedChange {
   sourceHint?: string;
   /** Current className string of the inspected element (if present). */
   className?: string;
+  /** Stable id stamped on the source DOM element (`__inspectflowId`) for hover-highlight. */
+  elementId?: string;
 }
 
 /**

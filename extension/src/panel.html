@@ -154,6 +154,76 @@
         color: var(--ok);
         margin-top: 4px;
       }
+
+      .card-dismiss {
+        margin-left: auto;
+        background: transparent;
+        border: none;
+        color: var(--text-muted);
+        font-size: 12px;
+        line-height: 1;
+        padding: 2px 4px;
+        cursor: pointer;
+        min-width: 0;
+      }
+
+      .card-dismiss:hover {
+        color: var(--err);
+        background: transparent;
+      }
+
+      .change-card.resolved {
+        opacity: 0.6;
+      }
+
+      .change-card.resolved:hover {
+        opacity: 1;
+      }
+
+      .edit-row {
+        display: flex;
+        gap: 6px;
+        margin-top: 4px;
+      }
+
+      .edit-input {
+        flex: 1;
+        font-family: "SF Mono", ui-monospace, Menlo, monospace;
+        font-size: 12px;
+        padding: 4px 8px;
+        background: #12131c;
+        color: var(--add);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+      }
+
+      .edit-input:focus {
+        outline: none;
+        border-color: var(--accent);
+      }
+
+      .edit-row button {
+        font-size: 11px;
+        padding: 4px 10px;
+      }
+
+      .unreachable-banner {
+        background: rgba(239, 68, 68, 0.1);
+        border: 1px solid var(--err);
+        border-radius: 8px;
+        padding: 10px 12px;
+        margin: 6px 0;
+        font-size: 11px;
+        line-height: 1.7;
+        color: var(--text);
+      }
+
+      .unreachable-banner code {
+        font-family: "SF Mono", ui-monospace, Menlo, monospace;
+        background: rgba(255, 255, 255, 0.06);
+        padding: 1px 4px;
+        border-radius: 4px;
+      }
     </style>
   </head>
   <body>

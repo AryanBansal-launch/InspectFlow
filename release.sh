@@ -52,8 +52,16 @@ command -v node >/dev/null || die "node not found"
 git rev-parse --git-dir >/dev/null 2>&1 || die "Not a git repository."
 
 if [ "$DRY_RUN" -eq 0 ]; then
-  npm whoami >/dev/null 2>&1 || die "Not logged into npm (run: npm login)"
-  gh auth status >/dev/null 2>&1 || die "Not authenticated with gh (run: gh auth login)"
+  # Only prompt for auth when it's actually missing/expired — otherwise pass through.
+  if ! npm whoami >/dev/null 2>&1; then
+    warn "Not logged into npm — launching 'npm login' (needs a terminal)…"
+    npm login || die "npm login failed or was cancelled."
+    npm whoami >/dev/null 2>&1 || die "Still not authenticated with npm after login."
+  fi
+  if ! gh auth status >/dev/null 2>&1; then
+    warn "Not authenticated with gh — launching 'gh auth login'…"
+    gh auth login || die "gh auth login failed or was cancelled."
+  fi
 fi
 ok "Preflight passed"
 
